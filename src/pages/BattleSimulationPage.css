@@ -189,6 +189,60 @@
   margin-top: 8px;
 }
 
+.active-effects {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 2px solid var(--border);
+}
+
+.active-effects h4 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.effects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.effect-item {
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  animation: effectPulse 2s ease-in-out infinite;
+}
+
+@keyframes effectPulse {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(139, 92, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.6);
+  }
+}
+
+.effect-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.effect-duration {
+  background: rgba(139, 92, 246, 0.3);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #c4b5fd;
+}
+
 .result-banner {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
   border: 3px solid var(--primary);

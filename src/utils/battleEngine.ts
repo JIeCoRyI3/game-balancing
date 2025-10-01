@@ -13,6 +13,7 @@ export class BattleEngine {
   private state: BattleState;
   private cards: Card[];
   private characteristics: Characteristic[];
+  private consecutiveTurnsWithoutCards: number = 0;
 
   constructor(
     hero1Settings: HeroSettings,
@@ -55,7 +56,7 @@ export class BattleEngine {
       cooldowns1: new Map(),
       cooldowns2: new Map(),
       log: [{ turn: 0, message: 'Battle started!' }],
-      winner: null,
+      winner: undefined,
     };
 
     // Heroes start with all cards - no drawing
@@ -191,12 +192,43 @@ export class BattleEngine {
     return hero.currentMana >= requiredMana && hero.currentStamina >= requiredStamina;
   }
 
+  private playBestAvailableCard(heroNum: 1 | 2): boolean {
+    const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
+    const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
+    const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
+
+    // Try to find a playable card
+    for (let cardIndex = 0; cardIndex < deck.length; cardIndex++) {
+      const cardId = deck[cardIndex];
+      const card = this.getCard(cardId);
+      if (!card) continue;
+
+      // Check cooldown
+      if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
+        continue; // Card is on cooldown, try next card
+      }
+
+      // Check if hero can afford to play this card
+      if (!this.canPlayCard(card, attacker)) {
+        continue; // Cannot afford, try next card
+      }
+
+      // Found a playable card, play it
+      this.playCardByIndex(heroNum, cardIndex);
+      return true; // Card was played
+    }
+
+    // No playable cards found
+    this.log(`Hero ${heroNum}: No playable cards this turn`);
+    return false; // No card was played
+  }
+
 
   private processTurn() {
     this.state.turn++;
     this.log(`\n=== Turn ${this.state.turn} ===`);
 
-    // Process active effects for both heroes
+    // Process active effects for both heroes at the start of the turn
     this.processActiveEffects(1);
     this.processActiveEffects(2);
 
@@ -214,25 +246,35 @@ export class BattleEngine {
 
     this.log(`Hero ${firstPlayer} goes first this turn`);
 
-    // Heroes play cards sequentially from their decks
-    const maxCards = Math.max(this.state.hero1Deck.length, this.state.hero2Deck.length);
+    // Each hero tries to play one available card per turn
+    // They cycle through their deck trying to find a playable card
+    const hero1Played = this.playBestAvailableCard(firstPlayer as 1 | 2);
     
-    for (let cardIndex = 0; cardIndex < maxCards; cardIndex++) {
-      // First player plays their card
-      if (cardIndex < (firstPlayer === 1 ? this.state.hero1Deck : this.state.hero2Deck).length) {
-        this.playCardByIndex(firstPlayer as 1 | 2, cardIndex);
+    // Check if battle ended after first player's action
+    if (this.checkBattleEnd()) return;
+    
+    const hero2Played = this.playBestAvailableCard(secondPlayer as 1 | 2);
+    
+    // Check if battle ended after second player's action
+    if (this.checkBattleEnd()) return;
+
+    // Track consecutive turns without any cards played (to prevent infinite loops)
+    if (!hero1Played && !hero2Played) {
+      this.consecutiveTurnsWithoutCards++;
+      if (this.consecutiveTurnsWithoutCards >= 5) {
+        this.log('Battle ended: No playable cards for 5 consecutive turns');
+        // Determine winner based on current health
+        if (this.state.hero1.currentHealth > this.state.hero2.currentHealth) {
+          this.state.winner = 1;
+        } else if (this.state.hero2.currentHealth > this.state.hero1.currentHealth) {
+          this.state.winner = 2;
+        } else {
+          this.state.winner = null;
+        }
+        return;
       }
-      
-      // Check if battle ended after first player's action
-      if (this.checkBattleEnd()) return;
-      
-      // Second player plays their card
-      if (cardIndex < (secondPlayer === 1 ? this.state.hero1Deck : this.state.hero2Deck).length) {
-        this.playCardByIndex(secondPlayer as 1 | 2, cardIndex);
-      }
-      
-      // Check if battle ended after second player's action
-      if (this.checkBattleEnd()) return;
+    } else {
+      this.consecutiveTurnsWithoutCards = 0;
     }
 
     this.log(`Hero 1: HP ${this.state.hero1.currentHealth}/${this.state.hero1.health}, Mana ${this.state.hero1.currentMana}/${this.state.hero1.mana}, Stamina ${this.state.hero1.currentStamina}/${this.state.hero1.stamina}, Shield ${this.state.hero1.shield}`);
@@ -285,6 +327,8 @@ export class BattleEngine {
     let cardCooldown = 0;
     let effectDuration = 0;
     const effectActions: ActionBlock[] = [];
+    const immediateActions: ActionBlock[] = [];
+    const resourceCosts: ActionBlock[] = [];
 
     // Process all characteristics of the card
     for (const charRef of card.characteristics) {
@@ -300,7 +344,7 @@ export class BattleEngine {
         }
       }
 
-      // Second pass: apply actions
+      // Second pass: categorize actions
       for (const action of char.actions) {
         if (action.type === ActionType.COOLDOWN || action.type === ActionType.EFFECT_DURATION) {
           continue; // Already processed
@@ -308,14 +352,30 @@ export class BattleEngine {
 
         const scaledAction = { ...action, value: action.value * charRef.value };
         
-        if (effectDuration > 0) {
-          // This action will be part of a lasting effect
+        // Resource costs are always immediate and never repeated
+        if (action.type === ActionType.SPEND_MANA_SELF || 
+            action.type === ActionType.SPEND_STAMINA_SELF ||
+            action.type === ActionType.SPEND_MANA_ENEMY ||
+            action.type === ActionType.SPEND_STAMINA_ENEMY) {
+          resourceCosts.push(scaledAction);
+        } else if (effectDuration > 0) {
+          // This action will be part of a lasting effect (applied each turn)
           effectActions.push(scaledAction);
         } else {
-          // Apply immediately
-          this.applyAction(scaledAction, attacker, defender, card.name);
+          // Apply immediately (one-time effect)
+          immediateActions.push(scaledAction);
         }
       }
+    }
+
+    // Apply resource costs first (only once, at card play)
+    for (const action of resourceCosts) {
+      this.applyAction(action, attacker, defender, card.name);
+    }
+
+    // Apply immediate actions (one-time effects)
+    for (const action of immediateActions) {
+      this.applyAction(action, attacker, defender, card.name);
     }
 
     // Set cooldown
@@ -324,7 +384,7 @@ export class BattleEngine {
       this.log(`${card.name}: Cooldown set to ${cardCooldown} turns`);
     }
 
-    // Add lasting effect
+    // Add lasting effect (will be applied each turn)
     if (effectDuration > 0 && effectActions.length > 0) {
       attacker.activeEffects.push({
         cardId: card.id,
@@ -332,7 +392,7 @@ export class BattleEngine {
         remainingDuration: effectDuration,
         actions: effectActions,
       });
-      this.log(`${card.name}: Effect will last for ${effectDuration} turns`);
+      this.log(`${card.name}: Effect applied for ${effectDuration} turns`);
     }
   }
 
@@ -344,16 +404,21 @@ export class BattleEngine {
 
     for (const effect of attacker.activeEffects) {
       if (effect.remainingDuration > 0) {
-        this.log(`${effect.cardName}: Effect active (${effect.remainingDuration} turns remaining)`);
+        this.log(`Hero ${heroNum}: ${effect.cardName} effect active (${effect.remainingDuration} turn(s) remaining)`);
         
+        // Apply the effect actions each turn
         for (const action of effect.actions) {
           this.applyAction(action, attacker, defender, effect.cardName);
         }
 
+        // Decrease duration after applying
         effect.remainingDuration--;
         
+        // Keep effect if still has duration
         if (effect.remainingDuration > 0) {
           remainingEffects.push(effect);
+        } else {
+          this.log(`Hero ${heroNum}: ${effect.cardName} effect ended`);
         }
       }
     }
