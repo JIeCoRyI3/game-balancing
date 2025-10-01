@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { BattleEngine } from '../utils/battleEngine';
 import { BattleState, HeroSettings, SimulationResult, SimulationAnalytics, Card } from '../types';
-import { analyzeSimulations, getCardWinRateByStats, findBestBalancedRanges, getCardsWinRateAtSpecificStats, StatRangeBalance, CardWinRateAtStats, calculatePowerPointSuggestions, calculateScalingSuggestions, PowerPointSuggestion, ScalingSuggestion } from '../utils/simulationAnalytics';
+import { analyzeSimulations, getCardWinRateByStats, findBestBalancedRanges, getCardsWinRateAtSpecificStats, StatRangeBalance, CardWinRateAtStats, calculatePowerPointSuggestions, calculateScalingSuggestions, PowerPointSuggestion, ScalingSuggestion, calculateCharacteristicPowerPointSuggestions, CharacteristicPowerPointSuggestion, calculateBalancedSystem, BalancedSystemSuggestion } from '../utils/simulationAnalytics';
 import './BattleSimulationPage.css';
 
 type SimulationMode = 'setup' | 'manual' | 'auto' | 'result' | 'multi-setup' | 'multi-running' | 'multi-results';
@@ -180,6 +180,8 @@ function BattleSimulationPage() {
   const [balanceRanges, setBalanceRanges] = useState<StatRangeBalance[]>([]);
   const [powerPointSuggestions, setPowerPointSuggestions] = useState<PowerPointSuggestion[]>([]);
   const [scalingSuggestions, setScalingSuggestions] = useState<ScalingSuggestion[]>([]);
+  const [characteristicSuggestions, setCharacteristicSuggestions] = useState<CharacteristicPowerPointSuggestion[]>([]);
+  const [balancedSystem, setBalancedSystem] = useState<BalancedSystemSuggestion | null>(null);
 
   const startSimulation = (isManual: boolean) => {
     if (!selectedDeck1 || !selectedDeck2) {
@@ -389,6 +391,21 @@ function BattleSimulationPage() {
     // Calculate power point suggestions
     const ppSuggestions = calculatePowerPointSuggestions(analyticsData, cards);
     setPowerPointSuggestions(ppSuggestions);
+
+    // Calculate characteristic-level suggestions
+    const charSuggs = calculateCharacteristicPowerPointSuggestions(analyticsData, cards, characteristics);
+    setCharacteristicSuggestions(charSuggs);
+
+    // Calculate balanced system
+    const balancedSys = calculateBalancedSystem(
+      analyticsData,
+      cards,
+      characteristics,
+      heroSettings.health,
+      heroSettings.mana,
+      heroSettings.stamina
+    );
+    setBalancedSystem(balancedSys);
 
     // Calculate scaling suggestions
     const scalingSuggs = calculateScalingSuggestions(
@@ -954,10 +971,70 @@ function BattleSimulationPage() {
             </div>
           )}
 
+          {/* Characteristic Power Point Suggestions */}
+          {characteristicSuggestions.length > 0 && (
+            <div className="power-points-section">
+              <h3>🔧 Предложения по перераспределению поинтов силы характеристик</h3>
+              <p className="section-description">
+                На основе анализа винрейтов карт с конкретными характеристиками, предлагается перераспределение поинтов силы 
+                на уровне характеристик. Это более точный подход, который учитывает истинную силу каждой характеристики.
+              </p>
+
+              <div className="power-points-table-container">
+                <table className="power-points-table">
+                  <thead>
+                    <tr>
+                      <th>Характеристика</th>
+                      <th>Текущие PP</th>
+                      <th>Предложенные PP</th>
+                      <th>Изменение</th>
+                      <th>Множитель для значений</th>
+                      <th>Винрейт</th>
+                      <th>Использований</th>
+                      <th>Обоснование</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {characteristicSuggestions.map(suggestion => (
+                      <tr key={suggestion.characteristicId}>
+                        <td><strong>{suggestion.characteristicName}</strong></td>
+                        <td className="pp-value">{suggestion.currentPowerPoints.toFixed(2)}</td>
+                        <td className="pp-value suggested">{suggestion.suggestedPowerPoints.toFixed(2)}</td>
+                        <td>
+                          <span className={`pp-adjustment ${suggestion.adjustment > 0 ? 'increase' : 'decrease'}`}>
+                            {suggestion.adjustment > 0 ? '+' : ''}{suggestion.adjustment.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="multiplier-value">×{suggestion.multiplier.toFixed(3)}</td>
+                        <td>
+                          <span className={`winrate ${suggestion.avgWinRateWhenUsed > 60 ? 'high' : suggestion.avgWinRateWhenUsed < 40 ? 'low' : ''}`}>
+                            {suggestion.avgWinRateWhenUsed.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td>{suggestion.totalUsages}</td>
+                        <td className="reason">{suggestion.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="info-box">
+                <p><strong>💡 Как интерпретировать:</strong></p>
+                <ul>
+                  <li><strong>Множитель {'>'} 1:</strong> Характеристика слабее, чем ожидается. Уменьшите её поинты силы ИЛИ увеличьте значения в картах</li>
+                  <li><strong>Множитель {'<'} 1:</strong> Характеристика сильнее, чем ожидается. Увеличьте её поинты силы ИЛИ уменьшите значения в картах</li>
+                  <li><strong>Винрейт {'>'} 55%:</strong> Карты с этой характеристикой выигрывают слишком часто</li>
+                  <li><strong>Винрейт {'<'} 45%:</strong> Карты с этой характеристикой проигрывают слишком часто</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
           {/* Power Point Recalculation Suggestions */}
           {powerPointSuggestions.length > 0 && (
             <div className="power-points-section">
-              <h3>⚖️ Предложения по перераспределению поинтов силы</h3>
+              <h3>⚖️ Предложения по перераспределению поинтов силы карт</h3>
               <p className="section-description">
                 На основе анализа винрейтов карт, предлагается перераспределение поинтов силы для достижения лучшего баланса.
                 Цель: карты с винрейтом 50% должны иметь ~0 поинтов силы.
@@ -1010,78 +1087,131 @@ function BattleSimulationPage() {
             </div>
           )}
 
-          {/* Scaling Suggestions */}
-          {scalingSuggestions.length > 0 && scalingSuggestions[0].cardAdjustments.length > 0 && (
-            <div className="scaling-section">
-              <h3>🎯 Рекомендации по идеальному балансу системы</h3>
+          {/* Balanced System Suggestion */}
+          {balancedSystem && (
+            <div className="scaling-section balanced-system-section">
+              <h3>🎯 Идеальная сбалансированная система</h3>
               <p className="section-description">
-                Комплексные рекомендации по настройке здоровья, ресурсов и силы карт для достижения идеального баланса.
+                Комплексное решение: перебалансировка характеристик + масштабирование для целых чисел + оптимальные параметры героя.
+                Эта система гарантирует, что все карты стремятся к 0 поинтов силы при правильном балансе.
               </p>
 
-              {scalingSuggestions.map((suggestion, idx) => (
-                <div key={idx} className="scaling-suggestion">
-                  <div className="scaling-header">
-                    <h4>🎮 Идеальные параметры героя</h4>
-                    <div className="scaling-values">
-                      <div className="scaling-stat">
-                        <span className="stat-label">❤️ Здоровье:</span>
-                        <span className="stat-value">{suggestion.targetHealth}</span>
-                      </div>
-                      <div className="scaling-stat">
-                        <span className="stat-label">💧 Мана:</span>
-                        <span className="stat-value">{suggestion.targetMana}</span>
-                      </div>
-                      <div className="scaling-stat">
-                        <span className="stat-label">⚡ Выносливость:</span>
-                        <span className="stat-value">{suggestion.targetStamina}</span>
-                      </div>
+              <div className="balanced-system-summary">
+                <div className="scaling-header">
+                  <h4>🎮 Целевые параметры системы</h4>
+                  <div className="scaling-values">
+                    <div className="scaling-stat">
+                      <span className="stat-label">❤️ Здоровье:</span>
+                      <span className="stat-value">{balancedSystem.targetHealth}</span>
+                    </div>
+                    <div className="scaling-stat">
+                      <span className="stat-label">💧 Мана:</span>
+                      <span className="stat-value">{balancedSystem.targetMana}</span>
+                    </div>
+                    <div className="scaling-stat">
+                      <span className="stat-label">⚡ Выносливость:</span>
+                      <span className="stat-value">{balancedSystem.targetStamina}</span>
+                    </div>
+                    <div className="scaling-stat highlight">
+                      <span className="stat-label">📊 Множитель:</span>
+                      <span className="stat-value">×{balancedSystem.scalingMultiplier.toFixed(2)}</span>
                     </div>
                   </div>
+                </div>
 
-                  <p className="scaling-description">{suggestion.description}</p>
+                <p className="scaling-description">{balancedSystem.description}</p>
+              </div>
 
-                  <div className="scaling-details">
-                    <h5>📋 Корректировки поинтов силы карт:</h5>
-                    <div className="scaling-cards-table-container">
-                      <table className="scaling-cards-table">
+              <div className="scaling-details">
+                <h5>🔧 Перебалансировка характеристик</h5>
+                <div className="scaling-cards-table-container">
+                  <table className="scaling-cards-table">
+                    <thead>
+                      <tr>
+                        <th>Характеристика</th>
+                        <th>Текущие PP</th>
+                        <th>Новые PP</th>
+                        <th>Изменение PP</th>
+                        <th>Множитель значений</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {balancedSystem.characteristicAdjustments.map(adj => (
+                        <tr key={adj.characteristicId}>
+                          <td><strong>{adj.characteristicName}</strong></td>
+                          <td>{adj.currentPowerPoints.toFixed(2)}</td>
+                          <td className="suggested-value">{adj.newPowerPoints.toFixed(2)}</td>
+                          <td>
+                            <span className={`adjustment ${adj.newPowerPoints > adj.currentPowerPoints ? 'increase' : 'decrease'}`}>
+                              {adj.newPowerPoints > adj.currentPowerPoints ? '+' : ''}
+                              {(adj.newPowerPoints - adj.currentPowerPoints).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="multiplier-value">×{adj.multiplier.toFixed(3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="scaling-details">
+                <h5>📋 Примеры перебалансированных карт (все значения - целые числа)</h5>
+                <div className="card-examples-container">
+                  {balancedSystem.cardExamples.slice(0, 10).map(card => (
+                    <details key={card.cardId} className="card-example">
+                      <summary>
+                        <strong>{card.cardName}</strong>
+                        <span className="pp-change">
+                          {card.currentTotalPP.toFixed(1)} PP → {card.newTotalPP.toFixed(1)} PP
+                          <span className={`adjustment ${card.newTotalPP > card.currentTotalPP ? 'increase' : card.newTotalPP < card.currentTotalPP ? 'decrease' : 'neutral'}`}>
+                            ({card.newTotalPP > card.currentTotalPP ? '+' : ''}{(card.newTotalPP - card.currentTotalPP).toFixed(1)})
+                          </span>
+                        </span>
+                      </summary>
+                      <table className="char-details-table">
                         <thead>
                           <tr>
-                            <th>Карта</th>
-                            <th>Текущие PP</th>
-                            <th>Новые PP</th>
-                            <th>Изменение</th>
+                            <th>Характеристика</th>
+                            <th>Было</th>
+                            <th>Стало</th>
+                            <th>PP было</th>
+                            <th>PP стало</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {suggestion.cardAdjustments.map(adj => (
-                            <tr key={adj.cardId}>
-                              <td><strong>{adj.cardName}</strong></td>
-                              <td>{adj.currentPowerPoints.toFixed(1)}</td>
-                              <td className="suggested-value">{adj.scaledPowerPoints.toFixed(1)}</td>
-                              <td>
-                                <span className={`adjustment ${adj.scaledPowerPoints > adj.currentPowerPoints ? 'increase' : 'decrease'}`}>
-                                  {adj.scaledPowerPoints > adj.currentPowerPoints ? '+' : ''}
-                                  {(adj.scaledPowerPoints - adj.currentPowerPoints).toFixed(1)}
-                                </span>
-                              </td>
+                          {card.characteristics.map((char, idx) => (
+                            <tr key={idx}>
+                              <td>{char.name}</td>
+                              <td>{char.currentValue}</td>
+                              <td className="new-value">{char.newValue}</td>
+                              <td>{char.currentPP.toFixed(2)}</td>
+                              <td className="new-value">{char.newPP.toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                    </div>
-                  </div>
-
-                  <div className="info-box">
-                    <p><strong>🚀 Пошаговая инструкция:</strong></p>
-                    <ol>
-                      <li><strong>Настройте героя:</strong> Перейдите в "Настройки героя" и установите здоровье на {suggestion.targetHealth}, ману на {suggestion.targetMana}, выносливость на {suggestion.targetStamina}</li>
-                      <li><strong>Обновите карты:</strong> Измените поинты силы карт согласно таблице выше</li>
-                      <li><strong>Проверьте баланс:</strong> Запустите новые симуляции с фиксированными характеристиками для проверки</li>
-                      <li><strong>Итеративно улучшайте:</strong> При необходимости повторите анализ и внесите дополнительные корректировки</li>
-                    </ol>
-                  </div>
+                    </details>
+                  ))}
                 </div>
-              ))}
+                {balancedSystem.cardExamples.length > 10 && (
+                  <p className="more-cards-info">
+                    Показаны первые 10 карт из {balancedSystem.cardExamples.length}
+                  </p>
+                )}
+              </div>
+
+              <div className="info-box">
+                <p><strong>🚀 Пошаговая инструкция по применению:</strong></p>
+                <ol>
+                  <li><strong>Обновите характеристики:</strong> В разделе "Характеристики" измените поинты силы согласно таблице "Перебалансировка характеристик"</li>
+                  <li><strong>Обновите значения в картах:</strong> Для каждой карты умножьте значения характеристик на соответствующий множитель (см. примеры выше)</li>
+                  <li><strong>Настройте героя:</strong> Установите здоровье {balancedSystem.targetHealth}, ману {balancedSystem.targetMana}, выносливость {balancedSystem.targetStamina}</li>
+                  <li><strong>Проверьте:</strong> Запустите 200+ симуляций с фиксированными характеристиками</li>
+                  <li><strong>Результат:</strong> Все карты должны иметь винрейт близкий к 50%, а их поинты силы должны быть близки к 0</li>
+                </ol>
+                <p><strong>⚠️ Важно:</strong> Это комплексное изменение затрагивает всю систему. Рекомендуется создать резервную копию перед применением.</p>
+              </div>
             </div>
           )}
         </div>
