@@ -409,3 +409,149 @@ export function getCardsWinRateAtSpecificStats(
 
   return results.sort((a, b) => b.winRate - a.winRate);
 }
+
+export interface PowerPointSuggestion {
+  cardId: string;
+  cardName: string;
+  currentPowerPoints: number;
+  suggestedPowerPoints: number;
+  adjustment: number;
+  winRate: number;
+  reason: string;
+}
+
+export function calculatePowerPointSuggestions(
+  analytics: SimulationAnalytics,
+  allCards: Card[]
+): PowerPointSuggestion[] {
+  const suggestions: PowerPointSuggestion[] = [];
+
+  analytics.cardAnalytics.forEach(cardAnalytics => {
+    const card = allCards.find(c => c.id === cardAnalytics.cardId);
+    if (!card || cardAnalytics.totalAppearances < 5) return;
+
+    const { winRate, impactScore } = cardAnalytics;
+    const currentPP = card.totalPowerPoints;
+
+    // Calculate suggested adjustment based on win rate deviation
+    // Formula: cards with higher win rates should have higher (more costly) power points
+    // Target: 50% win rate = 0 power points
+    // Each 1% deviation from 50% suggests ~0.5 power point adjustment
+    const winRateDeviation = winRate - 50;
+    const baseAdjustment = winRateDeviation * 0.5;
+    
+    // Weight adjustment by impact score (more impactful = more confident in adjustment)
+    const impactWeight = Math.min(impactScore / 20, 1.5); // Cap at 1.5x
+    const weightedAdjustment = baseAdjustment * impactWeight;
+    
+    // Round to nearest 0.5
+    const adjustment = Math.round(weightedAdjustment * 2) / 2;
+    const suggestedPP = Math.round((currentPP + adjustment) * 2) / 2;
+
+    if (Math.abs(adjustment) >= 0.5) {
+      let reason = '';
+      if (winRate > 60) {
+        reason = `Высокий винрейт (${winRate.toFixed(1)}%) указывает на то, что карта слишком сильная. Увеличение поинтов силы сделает её более дорогой.`;
+      } else if (winRate < 40) {
+        reason = `Низкий винрейт (${winRate.toFixed(1)}%) указывает на то, что карта слишком слабая. Уменьшение поинтов силы сделает её более доступной.`;
+      } else {
+        reason = `Винрейт ${winRate.toFixed(1)}% показывает небольшой дисбаланс. Корректировка поинтов силы улучшит баланс.`;
+      }
+
+      suggestions.push({
+        cardId: card.id,
+        cardName: card.name,
+        currentPowerPoints: currentPP,
+        suggestedPowerPoints: suggestedPP,
+        adjustment,
+        winRate,
+        reason,
+      });
+    }
+  });
+
+  return suggestions.sort((a, b) => Math.abs(b.adjustment) - Math.abs(a.adjustment));
+}
+
+export interface ScalingSuggestion {
+  targetHealth: number;
+  targetMana: number;
+  targetStamina: number;
+  healthScale: number;
+  resourceScale: number;
+  description: string;
+  cardAdjustments: Array<{
+    cardId: string;
+    cardName: string;
+    currentPowerPoints: number;
+    scaledPowerPoints: number;
+    characteristics: Array<{
+      name: string;
+      currentValue: number;
+      scaledValue: number;
+    }>;
+  }>;
+}
+
+export function calculateScalingSuggestions(
+  analytics: SimulationAnalytics,
+  allCards: Card[],
+  bestBalanceRange: StatRangeBalance | null,
+  characteristics: any[]
+): ScalingSuggestion[] {
+  const suggestions: ScalingSuggestion[] = [];
+
+  if (!bestBalanceRange) return suggestions;
+
+  // Get the center of the best balanced range
+  const targetHealth = Math.round((bestBalanceRange.healthRange[0] + bestBalanceRange.healthRange[1]) / 2);
+  const targetResource = Math.round((bestBalanceRange.resourceRange[0] + bestBalanceRange.resourceRange[1]) / 2);
+
+  // Find nice round numbers close to these targets
+  const roundedHealth = Math.round(targetHealth / 10) * 10;
+  const roundedResource = Math.round(targetResource / 10) * 10;
+
+  // Calculate scale factors
+  const avgHealth = (bestBalanceRange.healthRange[0] + bestBalanceRange.healthRange[1]) / 2;
+  const avgResource = (bestBalanceRange.resourceRange[0] + bestBalanceRange.resourceRange[1]) / 2;
+  
+  const healthScale = roundedHealth / avgHealth;
+  const resourceScale = roundedResource / avgResource;
+
+  // Calculate card adjustments based on power point suggestions
+  const powerPointSuggestions = calculatePowerPointSuggestions(analytics, allCards);
+  
+  const cardAdjustments = allCards.map(card => {
+    const suggestion = powerPointSuggestions.find(s => s.cardId === card.id);
+    const scaledPP = suggestion ? suggestion.suggestedPowerPoints : card.totalPowerPoints;
+
+    const charDetails = card.characteristics.map(charRef => {
+      const char = characteristics.find(c => c.id === charRef.characteristicId);
+      return {
+        name: char?.name || 'Unknown',
+        currentValue: charRef.value,
+        scaledValue: charRef.value, // Keep values the same, only PP changes
+      };
+    });
+
+    return {
+      cardId: card.id,
+      cardName: card.name,
+      currentPowerPoints: card.totalPowerPoints,
+      scaledPowerPoints: scaledPP,
+      characteristics: charDetails,
+    };
+  });
+
+  suggestions.push({
+    targetHealth: roundedHealth,
+    targetMana: roundedResource,
+    targetStamina: roundedResource,
+    healthScale,
+    resourceScale,
+    description: `Рекомендуется использовать здоровье ${roundedHealth} и ману/выносливость ${roundedResource} для наилучшего баланса. Это округленные значения на основе диапазона с лучшим балансом карт.`,
+    cardAdjustments: cardAdjustments.filter(adj => adj.currentPowerPoints !== adj.scaledPowerPoints),
+  });
+
+  return suggestions;
+}

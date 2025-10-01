@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { BattleEngine } from '../utils/battleEngine';
 import { BattleState, HeroSettings, SimulationResult, SimulationAnalytics, Card } from '../types';
-import { analyzeSimulations, getCardWinRateByStats, findBestBalancedRanges, getCardsWinRateAtSpecificStats, StatRangeBalance, CardWinRateAtStats } from '../utils/simulationAnalytics';
+import { analyzeSimulations, getCardWinRateByStats, findBestBalancedRanges, getCardsWinRateAtSpecificStats, StatRangeBalance, CardWinRateAtStats, calculatePowerPointSuggestions, calculateScalingSuggestions, PowerPointSuggestion, ScalingSuggestion } from '../utils/simulationAnalytics';
 import './BattleSimulationPage.css';
 
 type SimulationMode = 'setup' | 'manual' | 'auto' | 'result' | 'multi-setup' | 'multi-running' | 'multi-results';
@@ -169,6 +169,7 @@ function BattleSimulationPage() {
   const [simulationProgress, setSimulationProgress] = useState<number>(0);
   const [analytics, setAnalytics] = useState<SimulationAnalytics | null>(null);
   const [selectedCardForChart, setSelectedCardForChart] = useState<string>('');
+  const [useFixedStats, setUseFixedStats] = useState<boolean>(false);
   
   // Custom stats viewer
   const [customHealth, setCustomHealth] = useState<number>(0);
@@ -177,6 +178,8 @@ function BattleSimulationPage() {
   
   // Balance range analysis
   const [balanceRanges, setBalanceRanges] = useState<StatRangeBalance[]>([]);
+  const [powerPointSuggestions, setPowerPointSuggestions] = useState<PowerPointSuggestion[]>([]);
+  const [scalingSuggestions, setScalingSuggestions] = useState<ScalingSuggestion[]>([]);
 
   const startSimulation = (isManual: boolean) => {
     if (!selectedDeck1 || !selectedDeck2) {
@@ -292,25 +295,43 @@ function BattleSimulationPage() {
 
       if (!deck1 || !deck2) continue;
 
-      // Randomize hero stats with SAME multipliers for both heroes
-      // This ensures fair matchups where both heroes have equal base stats
-      // Health: base to base * 10
-      const healthMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
-      
-      // Mana/Stamina: base to base * 10 (separate multiplier, but same for both)
-      const resourceMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
+      let hero1SimSettings: HeroSettings;
+      let hero2SimSettings: HeroSettings;
 
-      const hero1SimSettings: HeroSettings = {
-        health: Math.floor(heroSettings.health * healthMultiplier),
-        mana: Math.floor(heroSettings.mana * resourceMultiplier),
-        stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
-      };
+      if (useFixedStats) {
+        // Use fixed stats - no randomization
+        hero1SimSettings = {
+          health: heroSettings.health,
+          mana: heroSettings.mana,
+          stamina: heroSettings.stamina,
+        };
 
-      const hero2SimSettings: HeroSettings = {
-        health: Math.floor(heroSettings.health * healthMultiplier),
-        mana: Math.floor(heroSettings.mana * resourceMultiplier),
-        stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
-      };
+        hero2SimSettings = {
+          health: heroSettings.health,
+          mana: heroSettings.mana,
+          stamina: heroSettings.stamina,
+        };
+      } else {
+        // Randomize hero stats with SAME multipliers for both heroes
+        // This ensures fair matchups where both heroes have equal base stats
+        // Health: base to base * 10
+        const healthMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
+        
+        // Mana/Stamina: base to base * 10 (separate multiplier, but same for both)
+        const resourceMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
+
+        hero1SimSettings = {
+          health: Math.floor(heroSettings.health * healthMultiplier),
+          mana: Math.floor(heroSettings.mana * resourceMultiplier),
+          stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
+        };
+
+        hero2SimSettings = {
+          health: Math.floor(heroSettings.health * healthMultiplier),
+          mana: Math.floor(heroSettings.mana * resourceMultiplier),
+          stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
+        };
+      }
 
       const deck1Cards = deck1.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
       const deck2Cards = deck2.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
@@ -364,6 +385,19 @@ function BattleSimulationPage() {
       Math.max(heroSettings.mana, heroSettings.stamina)
     );
     setBalanceRanges(balancedRanges);
+
+    // Calculate power point suggestions
+    const ppSuggestions = calculatePowerPointSuggestions(analyticsData, cards);
+    setPowerPointSuggestions(ppSuggestions);
+
+    // Calculate scaling suggestions
+    const scalingSuggs = calculateScalingSuggestions(
+      analyticsData,
+      cards,
+      balancedRanges.length > 0 ? balancedRanges[0] : null,
+      characteristics
+    );
+    setScalingSuggestions(scalingSuggs);
 
     // Initialize custom stats with base values
     setCustomHealth(heroSettings.health);
@@ -546,6 +580,23 @@ function BattleSimulationPage() {
             </div>
 
             <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={useFixedStats}
+                  onChange={(e) => setUseFixedStats(e.target.checked)}
+                  style={{ marginRight: '8px' }}
+                />
+                Использовать фиксированные характеристики героев
+              </label>
+              <small>
+                {useFixedStats 
+                  ? `Все симуляции будут использовать: ${heroSettings.health} HP, ${heroSettings.mana} Mana, ${heroSettings.stamina} Stamina`
+                  : 'Характеристики героев будут рандомизированы для каждой симуляции'}
+              </small>
+            </div>
+
+            <div className="form-group">
               <label>Выберите колоды для симуляций (минимум 2)</label>
               <div className="deck-selection-grid">
                 {decks.map(deck => (
@@ -570,10 +621,20 @@ function BattleSimulationPage() {
               <h4>ℹ️ Как работают множественные симуляции:</h4>
               <ul>
                 <li>Случайный выбор колод из выбранных для каждого боя</li>
-                <li><strong>Здоровье обоих героев</strong> изменяется одинаково: от базового до базового × 10</li>
-                <li><strong>Мана и выносливость обоих героев</strong> изменяются одинаково (независимо от здоровья): от базового до базового × 10</li>
-                <li>Это обеспечивает справедливые матчи, где разница только в колодах</li>
-                <li>Базовые значения берутся из настроек героя: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                {useFixedStats ? (
+                  <>
+                    <li><strong>Фиксированные характеристики:</strong> Все герои будут иметь одинаковые характеристики: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                    <li>Это позволяет проверить баланс колод при конкретных значениях характеристик героя</li>
+                    <li>Идеально для точной настройки баланса карт для определенного уровня силы героя</li>
+                  </>
+                ) : (
+                  <>
+                    <li><strong>Здоровье обоих героев</strong> изменяется одинаково: от базового до базового × 10</li>
+                    <li><strong>Мана и выносливость обоих героев</strong> изменяются одинаково (независимо от здоровья): от базового до базового × 10</li>
+                    <li>Это обеспечивает справедливые матчи, где разница только в колодах</li>
+                    <li>Базовые значения берутся из настроек героя: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                  </>
+                )}
                 <li>После симуляций вы получите детальную аналитику и рекомендации по балансу</li>
               </ul>
             </div>
@@ -890,6 +951,137 @@ function BattleSimulationPage() {
                   Показаны топ-5 наиболее сбалансированных диапазонов из {balanceRanges.length}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Power Point Recalculation Suggestions */}
+          {powerPointSuggestions.length > 0 && (
+            <div className="power-points-section">
+              <h3>⚖️ Предложения по перераспределению поинтов силы</h3>
+              <p className="section-description">
+                На основе анализа винрейтов карт, предлагается перераспределение поинтов силы для достижения лучшего баланса.
+                Цель: карты с винрейтом 50% должны иметь ~0 поинтов силы.
+              </p>
+
+              <div className="power-points-table-container">
+                <table className="power-points-table">
+                  <thead>
+                    <tr>
+                      <th>Карта</th>
+                      <th>Текущие PP</th>
+                      <th>Предложенные PP</th>
+                      <th>Изменение</th>
+                      <th>Винрейт</th>
+                      <th>Обоснование</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {powerPointSuggestions.map(suggestion => (
+                      <tr key={suggestion.cardId}>
+                        <td><strong>{suggestion.cardName}</strong></td>
+                        <td className="pp-value">{suggestion.currentPowerPoints.toFixed(1)}</td>
+                        <td className="pp-value suggested">{suggestion.suggestedPowerPoints.toFixed(1)}</td>
+                        <td>
+                          <span className={`pp-adjustment ${suggestion.adjustment > 0 ? 'increase' : 'decrease'}`}>
+                            {suggestion.adjustment > 0 ? '+' : ''}{suggestion.adjustment.toFixed(1)}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`winrate ${suggestion.winRate > 60 ? 'high' : suggestion.winRate < 40 ? 'low' : ''}`}>
+                            {suggestion.winRate.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="reason">{suggestion.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="info-box">
+                <p><strong>💡 Как применить:</strong></p>
+                <ul>
+                  <li>Перейдите на страницу "Характеристики"</li>
+                  <li>Измените поинты силы характеристик карт согласно предложениям</li>
+                  <li>Карты с высоким винрейтом должны стать дороже (больше поинтов силы)</li>
+                  <li>Карты с низким винрейтом должны стать дешевле (меньше поинтов силы)</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Scaling Suggestions */}
+          {scalingSuggestions.length > 0 && scalingSuggestions[0].cardAdjustments.length > 0 && (
+            <div className="scaling-section">
+              <h3>🎯 Рекомендации по идеальному балансу системы</h3>
+              <p className="section-description">
+                Комплексные рекомендации по настройке здоровья, ресурсов и силы карт для достижения идеального баланса.
+              </p>
+
+              {scalingSuggestions.map((suggestion, idx) => (
+                <div key={idx} className="scaling-suggestion">
+                  <div className="scaling-header">
+                    <h4>🎮 Идеальные параметры героя</h4>
+                    <div className="scaling-values">
+                      <div className="scaling-stat">
+                        <span className="stat-label">❤️ Здоровье:</span>
+                        <span className="stat-value">{suggestion.targetHealth}</span>
+                      </div>
+                      <div className="scaling-stat">
+                        <span className="stat-label">💧 Мана:</span>
+                        <span className="stat-value">{suggestion.targetMana}</span>
+                      </div>
+                      <div className="scaling-stat">
+                        <span className="stat-label">⚡ Выносливость:</span>
+                        <span className="stat-value">{suggestion.targetStamina}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="scaling-description">{suggestion.description}</p>
+
+                  <div className="scaling-details">
+                    <h5>📋 Корректировки поинтов силы карт:</h5>
+                    <div className="scaling-cards-table-container">
+                      <table className="scaling-cards-table">
+                        <thead>
+                          <tr>
+                            <th>Карта</th>
+                            <th>Текущие PP</th>
+                            <th>Новые PP</th>
+                            <th>Изменение</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {suggestion.cardAdjustments.map(adj => (
+                            <tr key={adj.cardId}>
+                              <td><strong>{adj.cardName}</strong></td>
+                              <td>{adj.currentPowerPoints.toFixed(1)}</td>
+                              <td className="suggested-value">{adj.scaledPowerPoints.toFixed(1)}</td>
+                              <td>
+                                <span className={`adjustment ${adj.scaledPowerPoints > adj.currentPowerPoints ? 'increase' : 'decrease'}`}>
+                                  {adj.scaledPowerPoints > adj.currentPowerPoints ? '+' : ''}
+                                  {(adj.scaledPowerPoints - adj.currentPowerPoints).toFixed(1)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="info-box">
+                    <p><strong>🚀 Пошаговая инструкция:</strong></p>
+                    <ol>
+                      <li><strong>Настройте героя:</strong> Перейдите в "Настройки героя" и установите здоровье на {suggestion.targetHealth}, ману на {suggestion.targetMana}, выносливость на {suggestion.targetStamina}</li>
+                      <li><strong>Обновите карты:</strong> Измените поинты силы карт согласно таблице выше</li>
+                      <li><strong>Проверьте баланс:</strong> Запустите новые симуляции с фиксированными характеристиками для проверки</li>
+                      <li><strong>Итеративно улучшайте:</strong> При необходимости повторите анализ и внесите дополнительные корректировки</li>
+                    </ol>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
