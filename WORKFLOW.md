@@ -31,6 +31,12 @@
 [Выбор колод] → [Количество симуляций] → [Запуск]
      ↓
 [Случайная генерация характеристик]
+  - healthMultiplier: 1-10 (одинаково для обоих героев)
+  - resourceMultiplier: 1-10 (одинаково для обоих героев)
+     ↓
+[Применение к обоим героям]
+  - Hero1: baseHP × multiplier, baseMana × multiplier
+  - Hero2: baseHP × multiplier, baseMana × multiplier
      ↓
 [Проведение боёв]
 ```

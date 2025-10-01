@@ -292,25 +292,24 @@ function BattleSimulationPage() {
 
       if (!deck1 || !deck2) continue;
 
-      // Randomize hero stats
+      // Randomize hero stats with SAME multipliers for both heroes
+      // This ensures fair matchups where both heroes have equal base stats
       // Health: base to base * 10
-      const hero1HealthMultiplier = 1 + Math.random() * 9; // 1 to 10
-      const hero2HealthMultiplier = 1 + Math.random() * 9;
+      const healthMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
       
-      // Mana/Stamina: base to base * 10 (separate multiplier)
-      const hero1ResourceMultiplier = 1 + Math.random() * 9;
-      const hero2ResourceMultiplier = 1 + Math.random() * 9;
+      // Mana/Stamina: base to base * 10 (separate multiplier, but same for both)
+      const resourceMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
 
       const hero1SimSettings: HeroSettings = {
-        health: Math.floor(heroSettings.health * hero1HealthMultiplier),
-        mana: Math.floor(heroSettings.mana * hero1ResourceMultiplier),
-        stamina: Math.floor(heroSettings.stamina * hero1ResourceMultiplier),
+        health: Math.floor(heroSettings.health * healthMultiplier),
+        mana: Math.floor(heroSettings.mana * resourceMultiplier),
+        stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
       };
 
       const hero2SimSettings: HeroSettings = {
-        health: Math.floor(heroSettings.health * hero2HealthMultiplier),
-        mana: Math.floor(heroSettings.mana * hero2ResourceMultiplier),
-        stamina: Math.floor(heroSettings.stamina * hero2ResourceMultiplier),
+        health: Math.floor(heroSettings.health * healthMultiplier),
+        mana: Math.floor(heroSettings.mana * resourceMultiplier),
+        stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
       };
 
       const deck1Cards = deck1.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
@@ -571,8 +570,9 @@ function BattleSimulationPage() {
               <h4>ℹ️ Как работают множественные симуляции:</h4>
               <ul>
                 <li>Случайный выбор колод из выбранных для каждого боя</li>
-                <li>Здоровье героев варьируется от базового до базового × 10</li>
-                <li>Мана и выносливость варьируются независимо от базового до базового × 10</li>
+                <li><strong>Здоровье обоих героев</strong> изменяется одинаково: от базового до базового × 10</li>
+                <li><strong>Мана и выносливость обоих героев</strong> изменяются одинаково (независимо от здоровья): от базового до базового × 10</li>
+                <li>Это обеспечивает справедливые матчи, где разница только в колодах</li>
                 <li>Базовые значения берутся из настроек героя: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
                 <li>После симуляций вы получите детальную аналитику и рекомендации по балансу</li>
               </ul>
