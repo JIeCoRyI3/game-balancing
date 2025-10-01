@@ -194,35 +194,35 @@ export class BattleEngine {
     return hero.currentMana >= requiredMana && hero.currentStamina >= requiredStamina;
   }
 
-  private playBestAvailableCard(heroNum: 1 | 2): boolean {
+  private tryPlayCard(heroNum: 1 | 2, cardIndex: number): boolean {
     const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
+    
+    if (cardIndex >= deck.length) {
+      return false; // No card at this index
+    }
+
+    const cardId = deck[cardIndex];
+    const card = this.getCard(cardId);
+    if (!card) return false;
+
     const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
     const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
 
-    // Try to find a playable card
-    for (let cardIndex = 0; cardIndex < deck.length; cardIndex++) {
-      const cardId = deck[cardIndex];
-      const card = this.getCard(cardId);
-      if (!card) continue;
-
-      // Check cooldown
-      if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
-        continue; // Card is on cooldown, try next card
-      }
-
-      // Check if hero can afford to play this card
-      if (!this.canPlayCard(card, attacker)) {
-        continue; // Cannot afford, try next card
-      }
-
-      // Found a playable card, play it
-      this.playCardByIndex(heroNum, cardIndex);
-      return true; // Card was played
+    // Check cooldown
+    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
+      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardId)} turns remaining)`, undefined, card.icon, card.iconColor);
+      return false;
     }
 
-    // No playable cards found
-    this.log(`Hero ${heroNum}: No playable cards this turn`);
-    return false; // No card was played
+    // Check if hero can afford to play this card
+    if (!this.canPlayCard(card, attacker)) {
+      this.log(`Hero ${heroNum}: Cannot play ${card.name} (not enough resources)`, undefined, card.icon, card.iconColor);
+      return false;
+    }
+
+    // Play the card
+    this.playCardByIndex(heroNum, cardIndex);
+    return true;
   }
 
 
@@ -233,6 +233,9 @@ export class BattleEngine {
     // Process active effects for both heroes at the start of the turn
     this.processActiveEffects(1);
     this.processActiveEffects(2);
+    
+    // Check if battle ended after effects
+    if (this.checkBattleEnd()) return;
 
     // Decay cooldowns
     this.state.cooldowns1.forEach((value, key) => {
@@ -248,20 +251,38 @@ export class BattleEngine {
 
     this.log(`Hero ${firstPlayer} goes first this turn`);
 
-    // Each hero tries to play one available card per turn
-    // They cycle through their deck trying to find a playable card
-    const hero1Played = this.playBestAvailableCard(firstPlayer as 1 | 2);
-    
-    // Check if battle ended after first player's action
-    if (this.checkBattleEnd()) return;
-    
-    const hero2Played = this.playBestAvailableCard(secondPlayer as 1 | 2);
-    
-    // Check if battle ended after second player's action
-    if (this.checkBattleEnd()) return;
+    // Get deck sizes
+    const deck1Size = this.state.hero1Deck.length;
+    const deck2Size = this.state.hero2Deck.length;
+    const maxCards = Math.max(deck1Size, deck2Size);
+
+    let anyCardPlayed = false;
+
+    // Players alternate playing cards by index
+    for (let cardIndex = 0; cardIndex < maxCards; cardIndex++) {
+      // First player tries to play card at this index
+      if (cardIndex < (firstPlayer === 1 ? deck1Size : deck2Size)) {
+        const played = this.tryPlayCard(firstPlayer as 1 | 2, cardIndex);
+        if (played) {
+          anyCardPlayed = true;
+          // Check if battle ended
+          if (this.checkBattleEnd()) return;
+        }
+      }
+
+      // Second player tries to play card at this index
+      if (cardIndex < (secondPlayer === 1 ? deck1Size : deck2Size)) {
+        const played = this.tryPlayCard(secondPlayer as 1 | 2, cardIndex);
+        if (played) {
+          anyCardPlayed = true;
+          // Check if battle ended
+          if (this.checkBattleEnd()) return;
+        }
+      }
+    }
 
     // Track consecutive turns without any cards played (to prevent infinite loops)
-    if (!hero1Played && !hero2Played) {
+    if (!anyCardPlayed) {
       this.consecutiveTurnsWithoutCards++;
       if (this.consecutiveTurnsWithoutCards >= 5) {
         this.log('Battle ended: No playable cards for 5 consecutive turns');
@@ -284,13 +305,7 @@ export class BattleEngine {
   }
 
   private checkBattleEnd(): boolean {
-    // Don't end battle if there are active effects
-    const hasActiveEffects = this.state.hero1.activeEffects.length > 0 || this.state.hero2.activeEffects.length > 0;
-    if (hasActiveEffects) {
-      return false;
-    }
-
-    // Check for winner
+    // Check for winner based on health
     if (this.state.hero1.currentHealth <= 0 && this.state.hero2.currentHealth <= 0) {
       this.state.winner = null;
       this.log('Battle ended in a draw!');
@@ -318,17 +333,6 @@ export class BattleEngine {
     const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
     const defender = heroNum === 1 ? this.state.hero2 : this.state.hero1;
     const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
-
-    // Check cooldown
-    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
-      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardId)} turns remaining)`);
-      return; // Card is on cooldown
-    }
-
-    if (!this.canPlayCard(card, attacker)) {
-      this.log(`Hero ${heroNum}: Cannot play ${card.name} (not enough resources)`, undefined, card.icon, card.iconColor);
-      return; // Cannot afford to play card, skip it
-    }
 
     this.log(`Hero ${heroNum} plays: ${card.name}`, undefined, card.icon, card.iconColor);
 
