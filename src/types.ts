@@ -119,3 +119,51 @@ export interface BattleResult {
   log: BattleLogEntry[];
   finalState: BattleState;
 }
+
+export interface SimulationResult {
+  id: string;
+  hero1DeckId: string;
+  hero2DeckId: string;
+  hero1DeckName: string;
+  hero2DeckName: string;
+  hero1InitialSettings: HeroSettings;
+  hero2InitialSettings: HeroSettings;
+  winner: 1 | 2 | null;
+  turns: number;
+  hero1Cards: string[]; // Card IDs used by hero 1
+  hero2Cards: string[]; // Card IDs used by hero 2
+}
+
+export interface CardAnalytics {
+  cardId: string;
+  cardName: string;
+  totalAppearances: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  winRate: number;
+  avgHealthWhenWin: number;
+  avgManaWhenWin: number;
+  avgStaminaWhenWin: number;
+  avgHealthWhenLose: number;
+  avgManaWhenLose: number;
+  avgStaminaWhenLose: number;
+  impactScore: number; // Calculated metric showing how much this card affects outcomes
+}
+
+export interface SimulationAnalytics {
+  totalSimulations: number;
+  results: SimulationResult[];
+  cardAnalytics: CardAnalytics[];
+  recommendations: BalanceRecommendation[];
+}
+
+export interface BalanceRecommendation {
+  cardId: string;
+  cardName: string;
+  issue: 'overpowered' | 'underpowered' | 'balanced';
+  severity: 'high' | 'medium' | 'low';
+  description: string;
+  winRate: number;
+  impactScore: number;
+}

@@ -1,10 +1,137 @@
 import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { BattleEngine } from '../utils/battleEngine';
-import { BattleState, HeroSettings } from '../types';
+import { BattleState, HeroSettings, SimulationResult, SimulationAnalytics, Card } from '../types';
+import { analyzeSimulations, getCardWinRateByStats } from '../utils/simulationAnalytics';
 import './BattleSimulationPage.css';
 
-type SimulationMode = 'setup' | 'manual' | 'auto' | 'result';
+type SimulationMode = 'setup' | 'manual' | 'auto' | 'result' | 'multi-setup' | 'multi-running' | 'multi-results';
+
+interface CardPerformanceChartProps {
+  cardId: string;
+  analytics: SimulationAnalytics;
+  heroSettings: HeroSettings;
+}
+
+function CardPerformanceChart({ cardId, analytics, heroSettings }: CardPerformanceChartProps) {
+  const cardAnalytics = analytics.cardAnalytics.find(c => c.cardId === cardId);
+  if (!cardAnalytics) return <div>Нет данных для этой карты</div>;
+
+  // Create buckets for health and mana/stamina ranges
+  const healthBuckets = 5; // Low to High
+  const resourceBuckets = 5; // Low to High
+
+  const maxHealth = heroSettings.health * 10;
+  const maxResource = Math.max(heroSettings.mana, heroSettings.stamina) * 10;
+
+  const healthStep = maxHealth / healthBuckets;
+  const resourceStep = maxResource / resourceBuckets;
+
+  // Build a matrix of win rates
+  const matrix: { health: string; resource: string; winRate: number; count: number }[] = [];
+
+  for (let h = 0; h < healthBuckets; h++) {
+    for (let r = 0; r < resourceBuckets; r++) {
+      const healthMin = h * healthStep;
+      const healthMax = (h + 1) * healthStep;
+      const resourceMin = r * resourceStep;
+      const resourceMax = (r + 1) * resourceStep;
+
+      const stats = getCardWinRateByStats(
+        cardId,
+        analytics,
+        [healthMin, healthMax],
+        [resourceMin, resourceMax]
+      );
+
+      if (stats.total > 0) {
+        matrix.push({
+          health: `${Math.floor(healthMin)}-${Math.floor(healthMax)}`,
+          resource: `${Math.floor(resourceMin)}-${Math.floor(resourceMax)}`,
+          winRate: stats.winRate,
+          count: stats.total,
+        });
+      }
+    }
+  }
+
+  return (
+    <div className="card-performance-chart">
+      <div className="chart-info">
+        <p><strong>{cardAnalytics.cardName}</strong></p>
+        <p>Общий винрейт: {cardAnalytics.winRate.toFixed(1)}%</p>
+        <p>Средний HP при победе: {cardAnalytics.avgHealthWhenWin.toFixed(0)}</p>
+        <p>Средний HP при поражении: {cardAnalytics.avgHealthWhenLose.toFixed(0)}</p>
+        <p>Средняя мана при победе: {cardAnalytics.avgManaWhenWin.toFixed(0)}</p>
+        <p>Средняя мана при поражении: {cardAnalytics.avgManaWhenLose.toFixed(0)}</p>
+      </div>
+
+      <div className="heatmap-container">
+        <h4>Тепловая карта винрейта</h4>
+        <p className="heatmap-description">
+          Показывает, как винрейт карты зависит от здоровья и маны/выносливости героя
+        </p>
+        
+        <div className="heatmap-grid">
+          {Array.from({ length: healthBuckets }).map((_, h) => (
+            <div key={h} className="heatmap-row">
+              <div className="heatmap-label">
+                HP: {Math.floor(h * healthStep)}-{Math.floor((h + 1) * healthStep)}
+              </div>
+              {Array.from({ length: resourceBuckets }).map((_, r) => {
+                const cell = matrix.find(
+                  m =>
+                    m.health === `${Math.floor(h * healthStep)}-${Math.floor((h + 1) * healthStep)}` &&
+                    m.resource === `${Math.floor(r * resourceStep)}-${Math.floor((r + 1) * resourceStep)}`
+                );
+
+                const winRate = cell ? cell.winRate : 0;
+                const count = cell ? cell.count : 0;
+
+                // Color based on win rate
+                let bgColor = '#333';
+                if (count > 0) {
+                  if (winRate >= 60) bgColor = '#4caf50';
+                  else if (winRate >= 50) bgColor = '#8bc34a';
+                  else if (winRate >= 40) bgColor = '#ffc107';
+                  else bgColor = '#f44336';
+                }
+
+                return (
+                  <div
+                    key={r}
+                    className="heatmap-cell"
+                    style={{ backgroundColor: bgColor }}
+                    title={count > 0 ? `${winRate.toFixed(1)}% (${count} боев)` : 'Нет данных'}
+                  >
+                    {count > 0 ? `${winRate.toFixed(0)}%` : '-'}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div className="heatmap-x-labels">
+            <div className="heatmap-label-spacer"></div>
+            {Array.from({ length: resourceBuckets }).map((_, r) => (
+              <div key={r} className="heatmap-x-label">
+                {Math.floor(r * resourceStep)}-{Math.floor((r + 1) * resourceStep)}
+              </div>
+            ))}
+          </div>
+          <div className="heatmap-x-title">Мана/Выносливость</div>
+        </div>
+
+        <div className="heatmap-legend">
+          <span>Винрейт:</span>
+          <div className="legend-item" style={{ backgroundColor: '#f44336' }}>&lt; 40%</div>
+          <div className="legend-item" style={{ backgroundColor: '#ffc107' }}>40-50%</div>
+          <div className="legend-item" style={{ backgroundColor: '#8bc34a' }}>50-60%</div>
+          <div className="legend-item" style={{ backgroundColor: '#4caf50' }}>&gt; 60%</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BattleSimulationPage() {
   const { decks, cards, characteristics, heroSettings } = useGame();
@@ -19,6 +146,13 @@ function BattleSimulationPage() {
   const [currentState, setCurrentState] = useState<BattleState | null>(null);
   const [battleHistory, setBattleHistory] = useState<BattleState[]>([]);
   const [showLog, setShowLog] = useState(false);
+
+  // Multi-simulation state
+  const [selectedDecks, setSelectedDecks] = useState<string[]>([]);
+  const [numSimulations, setNumSimulations] = useState<number>(100);
+  const [simulationProgress, setSimulationProgress] = useState<number>(0);
+  const [analytics, setAnalytics] = useState<SimulationAnalytics | null>(null);
+  const [selectedCardForChart, setSelectedCardForChart] = useState<string>('');
 
   const startSimulation = (isManual: boolean) => {
     if (!selectedDeck1 || !selectedDeck2) {
@@ -88,6 +222,116 @@ function BattleSimulationPage() {
 
   const getDeckName = (deckId: string) => {
     return decks.find(d => d.id === deckId)?.name || 'Unknown';
+  };
+
+  const toggleDeckSelection = (deckId: string) => {
+    if (selectedDecks.includes(deckId)) {
+      setSelectedDecks(selectedDecks.filter(id => id !== deckId));
+    } else {
+      setSelectedDecks([...selectedDecks, deckId]);
+    }
+  };
+
+  const startMultiSimulation = () => {
+    if (selectedDecks.length < 2) {
+      alert('Выберите минимум 2 колоды для проведения множественных симуляций!');
+      return;
+    }
+
+    setMode('multi-running');
+    setSimulationProgress(0);
+
+    // Run simulations asynchronously
+    setTimeout(() => runMultiSimulations(), 100);
+  };
+
+  const runMultiSimulations = () => {
+    const results: SimulationResult[] = [];
+
+    for (let i = 0; i < numSimulations; i++) {
+      // Randomly select two decks from the list
+      const deck1Index = Math.floor(Math.random() * selectedDecks.length);
+      let deck2Index = Math.floor(Math.random() * selectedDecks.length);
+      
+      // Ensure different decks (allow same deck if only one selected, but prefer different)
+      if (selectedDecks.length > 1) {
+        while (deck2Index === deck1Index) {
+          deck2Index = Math.floor(Math.random() * selectedDecks.length);
+        }
+      }
+
+      const deck1Id = selectedDecks[deck1Index];
+      const deck2Id = selectedDecks[deck2Index];
+
+      const deck1 = decks.find(d => d.id === deck1Id);
+      const deck2 = decks.find(d => d.id === deck2Id);
+
+      if (!deck1 || !deck2) continue;
+
+      // Randomize hero stats
+      // Health: base to base * 10
+      const hero1HealthMultiplier = 1 + Math.random() * 9; // 1 to 10
+      const hero2HealthMultiplier = 1 + Math.random() * 9;
+      
+      // Mana/Stamina: base to base * 10 (separate multiplier)
+      const hero1ResourceMultiplier = 1 + Math.random() * 9;
+      const hero2ResourceMultiplier = 1 + Math.random() * 9;
+
+      const hero1SimSettings: HeroSettings = {
+        health: Math.floor(heroSettings.health * hero1HealthMultiplier),
+        mana: Math.floor(heroSettings.mana * hero1ResourceMultiplier),
+        stamina: Math.floor(heroSettings.stamina * hero1ResourceMultiplier),
+      };
+
+      const hero2SimSettings: HeroSettings = {
+        health: Math.floor(heroSettings.health * hero2HealthMultiplier),
+        mana: Math.floor(heroSettings.mana * hero2ResourceMultiplier),
+        stamina: Math.floor(heroSettings.stamina * hero2ResourceMultiplier),
+      };
+
+      const deck1Cards = deck1.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
+      const deck2Cards = deck2.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
+
+      // Run simulation
+      const engine = new BattleEngine(
+        hero1SimSettings,
+        hero2SimSettings,
+        deck1Cards,
+        deck2Cards,
+        characteristics
+      );
+
+      const finalState = engine.runFullSimulation();
+
+      // Store result
+      results.push({
+        id: `sim-${i}`,
+        hero1DeckId: deck1Id,
+        hero2DeckId: deck2Id,
+        hero1DeckName: deck1.name,
+        hero2DeckName: deck2.name,
+        hero1InitialSettings: hero1SimSettings,
+        hero2InitialSettings: hero2SimSettings,
+        winner: finalState.winner !== undefined ? finalState.winner : null,
+        turns: finalState.turn,
+        hero1Cards: deck1.cardIds,
+        hero2Cards: deck2.cardIds,
+      });
+
+      // Update progress
+      setSimulationProgress(Math.floor(((i + 1) / numSimulations) * 100));
+    }
+    
+    // Analyze results
+    const analyticsData = analyzeSimulations(results, cards);
+    setAnalytics(analyticsData);
+    
+    // Select first card with data for chart
+    if (analyticsData.cardAnalytics.length > 0) {
+      setSelectedCardForChart(analyticsData.cardAnalytics[0].cardId);
+    }
+
+    setMode('multi-results');
   };
 
   return (
@@ -212,11 +456,230 @@ function BattleSimulationPage() {
             >
               ⚡ Автоматический режим
             </button>
+            <button
+              className="btn-info btn-large"
+              onClick={() => setMode('multi-setup')}
+            >
+              📊 Множественные симуляции
+            </button>
           </div>
 
           {decks.length < 2 && (
             <div className="warning-box">
               ⚠️ Создайте минимум 2 колоды для проведения симуляции
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'multi-setup' && (
+        <div className="multi-setup-container">
+          <div className="multi-setup-header">
+            <h2>Настройка множественных симуляций</h2>
+            <button className="btn-secondary" onClick={() => setMode('setup')}>
+              ← Назад
+            </button>
+          </div>
+
+          <div className="multi-setup-content">
+            <div className="form-group">
+              <label>Количество симуляций</label>
+              <input
+                type="number"
+                value={numSimulations}
+                onChange={(e) => setNumSimulations(Math.max(1, parseInt(e.target.value) || 1))}
+                min="1"
+                max="10000"
+              />
+              <small>Рекомендуется: 100-1000 симуляций для надежной аналитики</small>
+            </div>
+
+            <div className="form-group">
+              <label>Выберите колоды для симуляций (минимум 2)</label>
+              <div className="deck-selection-grid">
+                {decks.map(deck => (
+                  <div
+                    key={deck.id}
+                    className={`deck-selection-item ${selectedDecks.includes(deck.id) ? 'selected' : ''}`}
+                    onClick={() => toggleDeckSelection(deck.id)}
+                  >
+                    <div className="deck-checkbox">
+                      {selectedDecks.includes(deck.id) ? '✓' : ''}
+                    </div>
+                    <div className="deck-info">
+                      <div className="deck-name">{deck.name}</div>
+                      <div className="deck-card-count">{deck.cardIds.length} карт</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="info-box">
+              <h4>ℹ️ Как работают множественные симуляции:</h4>
+              <ul>
+                <li>Случайный выбор колод из выбранных для каждого боя</li>
+                <li>Здоровье героев варьируется от базового до базового × 10</li>
+                <li>Мана и выносливость варьируются независимо от базового до базового × 10</li>
+                <li>Базовые значения берутся из настроек героя: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                <li>После симуляций вы получите детальную аналитику и рекомендации по балансу</li>
+              </ul>
+            </div>
+
+            <button
+              className="btn-success btn-large"
+              onClick={startMultiSimulation}
+              disabled={selectedDecks.length < 2}
+            >
+              🚀 Запустить {numSimulations} симуляций
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'multi-running' && (
+        <div className="multi-running-container">
+          <h2>Выполнение симуляций...</h2>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${simulationProgress}%` }}></div>
+          </div>
+          <p className="progress-text">{simulationProgress}% ({Math.floor(numSimulations * simulationProgress / 100)} / {numSimulations})</p>
+        </div>
+      )}
+
+      {mode === 'multi-results' && analytics && (
+        <div className="multi-results-container">
+          <div className="results-header">
+            <h2>📊 Результаты {analytics.totalSimulations} симуляций</h2>
+            <button className="btn-secondary" onClick={() => setMode('setup')}>
+              Новая симуляция
+            </button>
+          </div>
+
+          {/* Summary Statistics */}
+          <div className="summary-stats">
+            <div className="stat-card">
+              <div className="stat-value">{analytics.totalSimulations}</div>
+              <div className="stat-label">Всего боёв</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{analytics.cardAnalytics.length}</div>
+              <div className="stat-label">Уникальных карт</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{selectedDecks.length}</div>
+              <div className="stat-label">Колод</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">
+                {analytics.recommendations.filter(r => r.severity === 'high').length}
+              </div>
+              <div className="stat-label">Критических проблем</div>
+            </div>
+          </div>
+
+          {/* Recommendations */}
+          {analytics.recommendations.length > 0 && (
+            <div className="recommendations-section">
+              <h3>🔧 Рекомендации по балансу</h3>
+              {analytics.recommendations.map((rec, idx) => (
+                <div key={idx} className={`recommendation-card severity-${rec.severity} issue-${rec.issue}`}>
+                  <div className="recommendation-header">
+                    <div className="recommendation-title">
+                      {rec.issue === 'overpowered' && '⚠️'}
+                      {rec.issue === 'underpowered' && '⬇️'}
+                      {rec.issue === 'balanced' && 'ℹ️'}
+                      <strong>{rec.cardName}</strong>
+                      <span className={`severity-badge ${rec.severity}`}>
+                        {rec.severity === 'high' && 'Высокая важность'}
+                        {rec.severity === 'medium' && 'Средняя важность'}
+                        {rec.severity === 'low' && 'Низкая важность'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="recommendation-description">{rec.description}</p>
+                  <div className="recommendation-stats">
+                    <span>Винрейт: {rec.winRate.toFixed(1)}%</span>
+                    <span>Импакт: {rec.impactScore.toFixed(1)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Card Analytics Table */}
+          <div className="card-analytics-section">
+            <h3>📈 Аналитика по картам</h3>
+            <div className="analytics-table-container">
+              <table className="analytics-table">
+                <thead>
+                  <tr>
+                    <th>Карта</th>
+                    <th>Появлений</th>
+                    <th>Побед</th>
+                    <th>Поражений</th>
+                    <th>Ничьих</th>
+                    <th>Винрейт</th>
+                    <th>Импакт</th>
+                    <th>График</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.cardAnalytics.map(card => (
+                    <tr key={card.cardId}>
+                      <td><strong>{card.cardName}</strong></td>
+                      <td>{card.totalAppearances}</td>
+                      <td className="wins">{card.wins}</td>
+                      <td className="losses">{card.losses}</td>
+                      <td>{card.draws}</td>
+                      <td>
+                        <span className={`winrate ${card.winRate > 60 ? 'high' : card.winRate < 40 ? 'low' : ''}`}>
+                          {card.winRate.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`impact ${card.impactScore > 15 ? 'high' : ''}`}>
+                          {card.impactScore.toFixed(1)}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn-small"
+                          onClick={() => setSelectedCardForChart(card.cardId)}
+                        >
+                          📊
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Card Performance Chart */}
+          {selectedCardForChart && analytics && (
+            <div className="card-chart-section">
+              <h3>📉 Зависимость побед от характеристик героя</h3>
+              <div className="chart-card-selector">
+                <label>Выбранная карта:</label>
+                <select
+                  value={selectedCardForChart}
+                  onChange={(e) => setSelectedCardForChart(e.target.value)}
+                >
+                  {analytics.cardAnalytics.map(card => (
+                    <option key={card.cardId} value={card.cardId}>
+                      {card.cardName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <CardPerformanceChart
+                cardId={selectedCardForChart}
+                analytics={analytics}
+                heroSettings={heroSettings}
+              />
             </div>
           )}
         </div>
