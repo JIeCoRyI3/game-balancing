@@ -3,6 +3,18 @@ import { useGame } from '../context/GameContext';
 import { Card, CardCharacteristic } from '../types';
 import './CardCreationPage.css';
 
+const ICON_OPTIONS = ['🃏', '⚔️', '🛡️', '🔥', '❄️', '⚡', '💧', '🌟', '💀', '🎯', '💥', '✨', '🌙', '☀️', '🔮', '💎', '🗡️', '🏹', '🪄', '⚗️'];
+const COLOR_OPTIONS = [
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Green', value: '#10b981' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Pink', value: '#ec4899' },
+  { name: 'Cyan', value: '#06b6d4' },
+];
+
 function CardCreationPage() {
   const { characteristics, cards, addCard, updateCard, deleteCard } = useGame();
   const [showModal, setShowModal] = useState(false);
@@ -12,6 +24,8 @@ function CardCreationPage() {
     name: '',
     description: '',
     characteristics: [] as CardCharacteristic[],
+    icon: '🃏',
+    iconColor: '#3b82f6',
   });
 
   const resetForm = () => {
@@ -19,6 +33,8 @@ function CardCreationPage() {
       name: '',
       description: '',
       characteristics: [],
+      icon: '🃏',
+      iconColor: '#3b82f6',
     });
     setEditingCard(null);
   };
@@ -30,6 +46,8 @@ function CardCreationPage() {
         name: card.name,
         description: card.description,
         characteristics: [...card.characteristics],
+        icon: card.icon || '🃏',
+        iconColor: card.iconColor || '#3b82f6',
       });
     } else {
       resetForm();
@@ -93,6 +111,8 @@ function CardCreationPage() {
       description: formData.description,
       characteristics: formData.characteristics,
       totalPowerPoints,
+      icon: formData.icon,
+      iconColor: formData.iconColor,
     };
 
     if (editingCard) {
@@ -128,7 +148,14 @@ function CardCreationPage() {
           {cards.map((card) => (
             <div key={card.id} className="card-item">
               <div className="card-header">
-                <h3>{card.name}</h3>
+                <div className="card-title-with-icon">
+                  {card.icon && (
+                    <span className="card-icon" style={{ color: card.iconColor }}>
+                      {card.icon}
+                    </span>
+                  )}
+                  <h3>{card.name}</h3>
+                </div>
                 <div className="card-power">
                   <span className={`power-value ${card.totalPowerPoints >= 0 ? 'positive' : 'negative'}`}>
                     {card.totalPowerPoints > 0 ? '+' : ''}{card.totalPowerPoints.toFixed(1)}
@@ -207,6 +234,41 @@ function CardCreationPage() {
                   placeholder="Описание эффекта карты"
                   rows={3}
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Иконка карты</label>
+                <div className="icon-selector">
+                  {ICON_OPTIONS.map((icon) => (
+                    <button
+                      key={icon}
+                      type="button"
+                      className={`icon-option ${formData.icon === icon ? 'selected' : ''}`}
+                      onClick={() => setFormData({ ...formData, icon })}
+                      style={{ color: formData.icon === icon ? formData.iconColor : 'inherit' }}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Цвет иконки</label>
+                <div className="color-selector">
+                  {COLOR_OPTIONS.map((color) => (
+                    <button
+                      key={color.value}
+                      type="button"
+                      className={`color-option ${formData.iconColor === color.value ? 'selected' : ''}`}
+                      onClick={() => setFormData({ ...formData, iconColor: color.value })}
+                      style={{ backgroundColor: color.value }}
+                      title={color.name}
+                    >
+                      {formData.iconColor === color.value && '✓'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="form-group">

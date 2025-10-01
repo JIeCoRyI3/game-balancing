@@ -46,6 +46,8 @@ export interface Card {
   description: string;
   characteristics: CardCharacteristic[];
   totalPowerPoints: number; // Calculated from characteristics
+  icon?: string; // Icon emoji or character
+  iconColor?: string; // Color for the icon
 }
 
 export interface Deck {
@@ -73,6 +75,8 @@ export interface ActiveEffect {
   cardName: string;
   remainingDuration: number;
   actions: ActionBlock[];
+  cardIcon?: string;
+  cardIconColor?: string;
 }
 
 export interface BattleState {
@@ -95,6 +99,8 @@ export interface BattleLogEntry {
   turn: number;
   message: string;
   details?: any;
+  cardIcon?: string;
+  cardIconColor?: string;
 }
 
 export interface BattleSimulation {

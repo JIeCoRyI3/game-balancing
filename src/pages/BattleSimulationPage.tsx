@@ -285,7 +285,14 @@ function BattleSimulationPage() {
                   <div className="effects-list">
                     {currentState.hero1.activeEffects.map((effect, idx) => (
                       <div key={idx} className="effect-item">
-                        <span className="effect-name">{effect.cardName}</span>
+                        <div className="effect-name-with-icon">
+                          {effect.cardIcon && (
+                            <span className="effect-icon" style={{ color: effect.cardIconColor }}>
+                              {effect.cardIcon}
+                            </span>
+                          )}
+                          <span className="effect-name">{effect.cardName}</span>
+                        </div>
                         <span className="effect-duration">⏱️ {effect.remainingDuration}</span>
                       </div>
                     ))}
@@ -344,7 +351,14 @@ function BattleSimulationPage() {
                   <div className="effects-list">
                     {currentState.hero2.activeEffects.map((effect, idx) => (
                       <div key={idx} className="effect-item">
-                        <span className="effect-name">{effect.cardName}</span>
+                        <div className="effect-name-with-icon">
+                          {effect.cardIcon && (
+                            <span className="effect-icon" style={{ color: effect.cardIconColor }}>
+                              {effect.cardIcon}
+                            </span>
+                          )}
+                          <span className="effect-name">{effect.cardName}</span>
+                        </div>
                         <span className="effect-duration">⏱️ {effect.remainingDuration}</span>
                       </div>
                     ))}
@@ -396,6 +410,11 @@ function BattleSimulationPage() {
                 {currentState.log.map((entry, idx) => (
                   <div key={idx} className="log-entry">
                     <span className="log-turn">[Ход {entry.turn}]</span>
+                    {entry.cardIcon && (
+                      <span className="log-icon" style={{ color: entry.cardIconColor }}>
+                        {entry.cardIcon}
+                      </span>
+                    )}
                     <span className="log-message">{entry.message}</span>
                   </div>
                 ))}
