@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { BattleEngine } from '../utils/battleEngine';
 import { BattleState, HeroSettings, SimulationResult, SimulationAnalytics, Card } from '../types';
-import { analyzeSimulations, getCardWinRateByStats, findBestBalancedRanges, getCardsWinRateAtSpecificStats, StatRangeBalance, CardWinRateAtStats } from '../utils/simulationAnalytics';
+import { analyzeSimulations, getCardWinRateByStats, findBestBalancedRanges, getCardsWinRateAtSpecificStats, StatRangeBalance, CardWinRateAtStats, calculatePowerPointSuggestions, calculateScalingSuggestions, PowerPointSuggestion, ScalingSuggestion, calculateCharacteristicPowerPointSuggestions, CharacteristicPowerPointSuggestion, calculateBalancedSystem, BalancedSystemSuggestion } from '../utils/simulationAnalytics';
 import './BattleSimulationPage.css';
 
 type SimulationMode = 'setup' | 'manual' | 'auto' | 'result' | 'multi-setup' | 'multi-running' | 'multi-results';
@@ -169,6 +169,7 @@ function BattleSimulationPage() {
   const [simulationProgress, setSimulationProgress] = useState<number>(0);
   const [analytics, setAnalytics] = useState<SimulationAnalytics | null>(null);
   const [selectedCardForChart, setSelectedCardForChart] = useState<string>('');
+  const [useFixedStats, setUseFixedStats] = useState<boolean>(false);
   
   // Custom stats viewer
   const [customHealth, setCustomHealth] = useState<number>(0);
@@ -177,6 +178,10 @@ function BattleSimulationPage() {
   
   // Balance range analysis
   const [balanceRanges, setBalanceRanges] = useState<StatRangeBalance[]>([]);
+  const [powerPointSuggestions, setPowerPointSuggestions] = useState<PowerPointSuggestion[]>([]);
+  const [scalingSuggestions, setScalingSuggestions] = useState<ScalingSuggestion[]>([]);
+  const [characteristicSuggestions, setCharacteristicSuggestions] = useState<CharacteristicPowerPointSuggestion[]>([]);
+  const [balancedSystem, setBalancedSystem] = useState<BalancedSystemSuggestion | null>(null);
 
   const startSimulation = (isManual: boolean) => {
     if (!selectedDeck1 || !selectedDeck2) {
@@ -292,25 +297,43 @@ function BattleSimulationPage() {
 
       if (!deck1 || !deck2) continue;
 
-      // Randomize hero stats with SAME multipliers for both heroes
-      // This ensures fair matchups where both heroes have equal base stats
-      // Health: base to base * 10
-      const healthMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
-      
-      // Mana/Stamina: base to base * 10 (separate multiplier, but same for both)
-      const resourceMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
+      let hero1SimSettings: HeroSettings;
+      let hero2SimSettings: HeroSettings;
 
-      const hero1SimSettings: HeroSettings = {
-        health: Math.floor(heroSettings.health * healthMultiplier),
-        mana: Math.floor(heroSettings.mana * resourceMultiplier),
-        stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
-      };
+      if (useFixedStats) {
+        // Use fixed stats - no randomization
+        hero1SimSettings = {
+          health: heroSettings.health,
+          mana: heroSettings.mana,
+          stamina: heroSettings.stamina,
+        };
 
-      const hero2SimSettings: HeroSettings = {
-        health: Math.floor(heroSettings.health * healthMultiplier),
-        mana: Math.floor(heroSettings.mana * resourceMultiplier),
-        stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
-      };
+        hero2SimSettings = {
+          health: heroSettings.health,
+          mana: heroSettings.mana,
+          stamina: heroSettings.stamina,
+        };
+      } else {
+        // Randomize hero stats with SAME multipliers for both heroes
+        // This ensures fair matchups where both heroes have equal base stats
+        // Health: base to base * 10
+        const healthMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
+        
+        // Mana/Stamina: base to base * 10 (separate multiplier, but same for both)
+        const resourceMultiplier = 1 + Math.random() * 9; // 1 to 10 (same for both)
+
+        hero1SimSettings = {
+          health: Math.floor(heroSettings.health * healthMultiplier),
+          mana: Math.floor(heroSettings.mana * resourceMultiplier),
+          stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
+        };
+
+        hero2SimSettings = {
+          health: Math.floor(heroSettings.health * healthMultiplier),
+          mana: Math.floor(heroSettings.mana * resourceMultiplier),
+          stamina: Math.floor(heroSettings.stamina * resourceMultiplier),
+        };
+      }
 
       const deck1Cards = deck1.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
       const deck2Cards = deck2.cardIds.map(id => cards.find(c => c.id === id)).filter(Boolean) as Card[];
@@ -364,6 +387,34 @@ function BattleSimulationPage() {
       Math.max(heroSettings.mana, heroSettings.stamina)
     );
     setBalanceRanges(balancedRanges);
+
+    // Calculate power point suggestions
+    const ppSuggestions = calculatePowerPointSuggestions(analyticsData, cards);
+    setPowerPointSuggestions(ppSuggestions);
+
+    // Calculate characteristic-level suggestions
+    const charSuggs = calculateCharacteristicPowerPointSuggestions(analyticsData, cards, characteristics);
+    setCharacteristicSuggestions(charSuggs);
+
+    // Calculate balanced system
+    const balancedSys = calculateBalancedSystem(
+      analyticsData,
+      cards,
+      characteristics,
+      heroSettings.health,
+      heroSettings.mana,
+      heroSettings.stamina
+    );
+    setBalancedSystem(balancedSys);
+
+    // Calculate scaling suggestions
+    const scalingSuggs = calculateScalingSuggestions(
+      analyticsData,
+      cards,
+      balancedRanges.length > 0 ? balancedRanges[0] : null,
+      characteristics
+    );
+    setScalingSuggestions(scalingSuggs);
 
     // Initialize custom stats with base values
     setCustomHealth(heroSettings.health);
@@ -546,6 +597,23 @@ function BattleSimulationPage() {
             </div>
 
             <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={useFixedStats}
+                  onChange={(e) => setUseFixedStats(e.target.checked)}
+                  style={{ marginRight: '8px' }}
+                />
+                Использовать фиксированные характеристики героев
+              </label>
+              <small>
+                {useFixedStats 
+                  ? `Все симуляции будут использовать: ${heroSettings.health} HP, ${heroSettings.mana} Mana, ${heroSettings.stamina} Stamina`
+                  : 'Характеристики героев будут рандомизированы для каждой симуляции'}
+              </small>
+            </div>
+
+            <div className="form-group">
               <label>Выберите колоды для симуляций (минимум 2)</label>
               <div className="deck-selection-grid">
                 {decks.map(deck => (
@@ -570,10 +638,20 @@ function BattleSimulationPage() {
               <h4>ℹ️ Как работают множественные симуляции:</h4>
               <ul>
                 <li>Случайный выбор колод из выбранных для каждого боя</li>
-                <li><strong>Здоровье обоих героев</strong> изменяется одинаково: от базового до базового × 10</li>
-                <li><strong>Мана и выносливость обоих героев</strong> изменяются одинаково (независимо от здоровья): от базового до базового × 10</li>
-                <li>Это обеспечивает справедливые матчи, где разница только в колодах</li>
-                <li>Базовые значения берутся из настроек героя: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                {useFixedStats ? (
+                  <>
+                    <li><strong>Фиксированные характеристики:</strong> Все герои будут иметь одинаковые характеристики: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                    <li>Это позволяет проверить баланс колод при конкретных значениях характеристик героя</li>
+                    <li>Идеально для точной настройки баланса карт для определенного уровня силы героя</li>
+                  </>
+                ) : (
+                  <>
+                    <li><strong>Здоровье обоих героев</strong> изменяется одинаково: от базового до базового × 10</li>
+                    <li><strong>Мана и выносливость обоих героев</strong> изменяются одинаково (независимо от здоровья): от базового до базового × 10</li>
+                    <li>Это обеспечивает справедливые матчи, где разница только в колодах</li>
+                    <li>Базовые значения берутся из настроек героя: {heroSettings.health} HP, {heroSettings.mana} Mana, {heroSettings.stamina} Stamina</li>
+                  </>
+                )}
                 <li>После симуляций вы получите детальную аналитику и рекомендации по балансу</li>
               </ul>
             </div>
@@ -890,6 +968,250 @@ function BattleSimulationPage() {
                   Показаны топ-5 наиболее сбалансированных диапазонов из {balanceRanges.length}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Characteristic Power Point Suggestions */}
+          {characteristicSuggestions.length > 0 && (
+            <div className="power-points-section">
+              <h3>🔧 Предложения по перераспределению поинтов силы характеристик</h3>
+              <p className="section-description">
+                На основе анализа винрейтов карт с конкретными характеристиками, предлагается перераспределение поинтов силы 
+                на уровне характеристик. Это более точный подход, который учитывает истинную силу каждой характеристики.
+              </p>
+
+              <div className="power-points-table-container">
+                <table className="power-points-table">
+                  <thead>
+                    <tr>
+                      <th>Характеристика</th>
+                      <th>Текущие PP</th>
+                      <th>Предложенные PP</th>
+                      <th>Изменение</th>
+                      <th>Множитель для значений</th>
+                      <th>Винрейт</th>
+                      <th>Использований</th>
+                      <th>Обоснование</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {characteristicSuggestions.map(suggestion => (
+                      <tr key={suggestion.characteristicId}>
+                        <td><strong>{suggestion.characteristicName}</strong></td>
+                        <td className="pp-value">{suggestion.currentPowerPoints.toFixed(2)}</td>
+                        <td className="pp-value suggested">{suggestion.suggestedPowerPoints.toFixed(2)}</td>
+                        <td>
+                          <span className={`pp-adjustment ${suggestion.adjustment > 0 ? 'increase' : 'decrease'}`}>
+                            {suggestion.adjustment > 0 ? '+' : ''}{suggestion.adjustment.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="multiplier-value">×{suggestion.multiplier.toFixed(3)}</td>
+                        <td>
+                          <span className={`winrate ${suggestion.avgWinRateWhenUsed > 60 ? 'high' : suggestion.avgWinRateWhenUsed < 40 ? 'low' : ''}`}>
+                            {suggestion.avgWinRateWhenUsed.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td>{suggestion.totalUsages}</td>
+                        <td className="reason">{suggestion.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="info-box">
+                <p><strong>💡 Как интерпретировать:</strong></p>
+                <ul>
+                  <li><strong>Множитель {'>'} 1:</strong> Характеристика слабее, чем ожидается. Уменьшите её поинты силы ИЛИ увеличьте значения в картах</li>
+                  <li><strong>Множитель {'<'} 1:</strong> Характеристика сильнее, чем ожидается. Увеличьте её поинты силы ИЛИ уменьшите значения в картах</li>
+                  <li><strong>Винрейт {'>'} 55%:</strong> Карты с этой характеристикой выигрывают слишком часто</li>
+                  <li><strong>Винрейт {'<'} 45%:</strong> Карты с этой характеристикой проигрывают слишком часто</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Power Point Recalculation Suggestions */}
+          {powerPointSuggestions.length > 0 && (
+            <div className="power-points-section">
+              <h3>⚖️ Предложения по перераспределению поинтов силы карт</h3>
+              <p className="section-description">
+                На основе анализа винрейтов карт, предлагается перераспределение поинтов силы для достижения лучшего баланса.
+                Цель: карты с винрейтом 50% должны иметь ~0 поинтов силы.
+              </p>
+
+              <div className="power-points-table-container">
+                <table className="power-points-table">
+                  <thead>
+                    <tr>
+                      <th>Карта</th>
+                      <th>Текущие PP</th>
+                      <th>Предложенные PP</th>
+                      <th>Изменение</th>
+                      <th>Винрейт</th>
+                      <th>Обоснование</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {powerPointSuggestions.map(suggestion => (
+                      <tr key={suggestion.cardId}>
+                        <td><strong>{suggestion.cardName}</strong></td>
+                        <td className="pp-value">{suggestion.currentPowerPoints.toFixed(1)}</td>
+                        <td className="pp-value suggested">{suggestion.suggestedPowerPoints.toFixed(1)}</td>
+                        <td>
+                          <span className={`pp-adjustment ${suggestion.adjustment > 0 ? 'increase' : 'decrease'}`}>
+                            {suggestion.adjustment > 0 ? '+' : ''}{suggestion.adjustment.toFixed(1)}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`winrate ${suggestion.winRate > 60 ? 'high' : suggestion.winRate < 40 ? 'low' : ''}`}>
+                            {suggestion.winRate.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="reason">{suggestion.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="info-box">
+                <p><strong>💡 Как применить:</strong></p>
+                <ul>
+                  <li>Перейдите на страницу "Характеристики"</li>
+                  <li>Измените поинты силы характеристик карт согласно предложениям</li>
+                  <li>Карты с высоким винрейтом должны стать дороже (больше поинтов силы)</li>
+                  <li>Карты с низким винрейтом должны стать дешевле (меньше поинтов силы)</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Balanced System Suggestion */}
+          {balancedSystem && (
+            <div className="scaling-section balanced-system-section">
+              <h3>🎯 Идеальная сбалансированная система</h3>
+              <p className="section-description">
+                Комплексное решение: перебалансировка характеристик + масштабирование для целых чисел + оптимальные параметры героя.
+                Эта система гарантирует, что все карты стремятся к 0 поинтов силы при правильном балансе.
+              </p>
+
+              <div className="balanced-system-summary">
+                <div className="scaling-header">
+                  <h4>🎮 Целевые параметры системы</h4>
+                  <div className="scaling-values">
+                    <div className="scaling-stat">
+                      <span className="stat-label">❤️ Здоровье:</span>
+                      <span className="stat-value">{balancedSystem.targetHealth}</span>
+                    </div>
+                    <div className="scaling-stat">
+                      <span className="stat-label">💧 Мана:</span>
+                      <span className="stat-value">{balancedSystem.targetMana}</span>
+                    </div>
+                    <div className="scaling-stat">
+                      <span className="stat-label">⚡ Выносливость:</span>
+                      <span className="stat-value">{balancedSystem.targetStamina}</span>
+                    </div>
+                    <div className="scaling-stat highlight">
+                      <span className="stat-label">📊 Множитель:</span>
+                      <span className="stat-value">×{balancedSystem.scalingMultiplier.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="scaling-description">{balancedSystem.description}</p>
+              </div>
+
+              <div className="scaling-details">
+                <h5>🔧 Перебалансировка характеристик</h5>
+                <div className="scaling-cards-table-container">
+                  <table className="scaling-cards-table">
+                    <thead>
+                      <tr>
+                        <th>Характеристика</th>
+                        <th>Текущие PP</th>
+                        <th>Новые PP</th>
+                        <th>Изменение PP</th>
+                        <th>Множитель значений</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {balancedSystem.characteristicAdjustments.map(adj => (
+                        <tr key={adj.characteristicId}>
+                          <td><strong>{adj.characteristicName}</strong></td>
+                          <td>{adj.currentPowerPoints.toFixed(2)}</td>
+                          <td className="suggested-value">{adj.newPowerPoints.toFixed(2)}</td>
+                          <td>
+                            <span className={`adjustment ${adj.newPowerPoints > adj.currentPowerPoints ? 'increase' : 'decrease'}`}>
+                              {adj.newPowerPoints > adj.currentPowerPoints ? '+' : ''}
+                              {(adj.newPowerPoints - adj.currentPowerPoints).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="multiplier-value">×{adj.multiplier.toFixed(3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="scaling-details">
+                <h5>📋 Примеры перебалансированных карт (все значения - целые числа)</h5>
+                <div className="card-examples-container">
+                  {balancedSystem.cardExamples.slice(0, 10).map(card => (
+                    <details key={card.cardId} className="card-example">
+                      <summary>
+                        <strong>{card.cardName}</strong>
+                        <span className="pp-change">
+                          {card.currentTotalPP.toFixed(1)} PP → {card.newTotalPP.toFixed(1)} PP
+                          <span className={`adjustment ${card.newTotalPP > card.currentTotalPP ? 'increase' : card.newTotalPP < card.currentTotalPP ? 'decrease' : 'neutral'}`}>
+                            ({card.newTotalPP > card.currentTotalPP ? '+' : ''}{(card.newTotalPP - card.currentTotalPP).toFixed(1)})
+                          </span>
+                        </span>
+                      </summary>
+                      <table className="char-details-table">
+                        <thead>
+                          <tr>
+                            <th>Характеристика</th>
+                            <th>Было</th>
+                            <th>Стало</th>
+                            <th>PP было</th>
+                            <th>PP стало</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {card.characteristics.map((char, idx) => (
+                            <tr key={idx}>
+                              <td>{char.name}</td>
+                              <td>{char.currentValue}</td>
+                              <td className="new-value">{char.newValue}</td>
+                              <td>{char.currentPP.toFixed(2)}</td>
+                              <td className="new-value">{char.newPP.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  ))}
+                </div>
+                {balancedSystem.cardExamples.length > 10 && (
+                  <p className="more-cards-info">
+                    Показаны первые 10 карт из {balancedSystem.cardExamples.length}
+                  </p>
+                )}
+              </div>
+
+              <div className="info-box">
+                <p><strong>🚀 Пошаговая инструкция по применению:</strong></p>
+                <ol>
+                  <li><strong>Обновите характеристики:</strong> В разделе "Характеристики" измените поинты силы согласно таблице "Перебалансировка характеристик"</li>
+                  <li><strong>Обновите значения в картах:</strong> Для каждой карты умножьте значения характеристик на соответствующий множитель (см. примеры выше)</li>
+                  <li><strong>Настройте героя:</strong> Установите здоровье {balancedSystem.targetHealth}, ману {balancedSystem.targetMana}, выносливость {balancedSystem.targetStamina}</li>
+                  <li><strong>Проверьте:</strong> Запустите 200+ симуляций с фиксированными характеристиками</li>
+                  <li><strong>Результат:</strong> Все карты должны иметь винрейт близкий к 50%, а их поинты силы должны быть близки к 0</li>
+                </ol>
+                <p><strong>⚠️ Важно:</strong> Это комплексное изменение затрагивает всю систему. Рекомендуется создать резервную копию перед применением.</p>
+              </div>
             </div>
           )}
         </div>
