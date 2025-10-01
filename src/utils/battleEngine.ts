@@ -5,7 +5,6 @@ import {
   Characteristic,
   ActionBlock,
   ActionType,
-  BattleLogEntry,
   HeroSettings,
   ActiveEffect,
 } from '../types';
@@ -59,9 +58,9 @@ export class BattleEngine {
       winner: null,
     };
 
-    // Initial card draw
-    this.drawCards(1, 3);
-    this.drawCards(2, 3);
+    // Heroes start with all cards - no drawing
+    this.log(`Hero 1 starts with ${hero1DeckCards.length} cards`);
+    this.log(`Hero 2 starts with ${hero2DeckCards.length} cards`);
   }
 
   private log(message: string, details?: any) {
@@ -76,20 +75,6 @@ export class BattleEngine {
     return this.characteristics.find(c => c.id === charId);
   }
 
-  private drawCards(heroNum: 1 | 2, count: number) {
-    const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
-    const hand = heroNum === 1 ? this.state.hero1Hand : this.state.hero2Hand;
-
-    for (let i = 0; i < count && deck.length > 0; i++) {
-      const cardIndex = Math.floor(Math.random() * deck.length);
-      const cardId = deck[cardIndex];
-      hand.push(cardId);
-      deck.splice(cardIndex, 1);
-      
-      const card = this.getCard(cardId);
-      this.log(`Hero ${heroNum} draws: ${card?.name || 'Unknown Card'}`);
-    }
-  }
 
   private applyAction(
     action: ActionBlock,
@@ -206,75 +191,6 @@ export class BattleEngine {
     return hero.currentMana >= requiredMana && hero.currentStamina >= requiredStamina;
   }
 
-  private playCard(cardId: string, heroNum: 1 | 2) {
-    const card = this.getCard(cardId);
-    if (!card) return;
-
-    const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
-    const defender = heroNum === 1 ? this.state.hero2 : this.state.hero1;
-    const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
-
-    // Check cooldown
-    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
-      return; // Card is on cooldown
-    }
-
-    if (!this.canPlayCard(card, attacker)) {
-      return; // Cannot afford to play card
-    }
-
-    this.log(`Hero ${heroNum} plays: ${card.name}`);
-
-    let cardCooldown = 0;
-    let effectDuration = 0;
-    const effectActions: ActionBlock[] = [];
-
-    // Process all characteristics of the card
-    for (const charRef of card.characteristics) {
-      const char = this.getCharacteristic(charRef.characteristicId);
-      if (!char) continue;
-
-      // Apply each action multiple times based on the value
-      for (const action of char.actions) {
-        if (action.type === ActionType.COOLDOWN) {
-          cardCooldown = Math.max(cardCooldown, action.value);
-        } else if (action.type === ActionType.EFFECT_DURATION) {
-          effectDuration = action.value;
-        } else {
-          const scaledAction = { ...action, value: action.value * charRef.value };
-          
-          if (effectDuration > 0) {
-            effectActions.push(scaledAction);
-          } else {
-            this.applyAction(scaledAction, attacker, defender, card.name);
-          }
-        }
-      }
-    }
-
-    // Set cooldown
-    if (cardCooldown > 0) {
-      cooldowns.set(cardId, cardCooldown);
-    }
-
-    // Add lasting effect
-    if (effectDuration > 0 && effectActions.length > 0) {
-      attacker.activeEffects.push({
-        cardId: card.id,
-        cardName: card.name,
-        remainingDuration: effectDuration,
-        actions: effectActions,
-      });
-      this.log(`${card.name}: Effect will last for ${effectDuration} turns`);
-    }
-
-    // Add to played cards
-    if (heroNum === 1) {
-      this.state.hero1Played.push(cardId);
-    } else {
-      this.state.hero2Played.push(cardId);
-    }
-  }
 
   private processTurn() {
     this.state.turn++;
@@ -292,28 +208,132 @@ export class BattleEngine {
       if (value > 0) this.state.cooldowns2.set(key, value - 1);
     });
 
-    // Each hero plays a random card from hand
-    this.playRandomCard(1);
-    this.playRandomCard(2);
+    // Determine who goes first this turn (alternates each turn)
+    const firstPlayer = this.state.turn % 2 === 1 ? 1 : 2;
+    const secondPlayer = firstPlayer === 1 ? 2 : 1;
 
-    // Draw new cards
-    this.drawCards(1, 1);
-    this.drawCards(2, 1);
+    this.log(`Hero ${firstPlayer} goes first this turn`);
 
+    // Heroes play cards sequentially from their decks
+    const maxCards = Math.max(this.state.hero1Deck.length, this.state.hero2Deck.length);
+    
+    for (let cardIndex = 0; cardIndex < maxCards; cardIndex++) {
+      // First player plays their card
+      if (cardIndex < (firstPlayer === 1 ? this.state.hero1Deck : this.state.hero2Deck).length) {
+        this.playCardByIndex(firstPlayer as 1 | 2, cardIndex);
+      }
+      
+      // Check if battle ended after first player's action
+      if (this.checkBattleEnd()) return;
+      
+      // Second player plays their card
+      if (cardIndex < (secondPlayer === 1 ? this.state.hero1Deck : this.state.hero2Deck).length) {
+        this.playCardByIndex(secondPlayer as 1 | 2, cardIndex);
+      }
+      
+      // Check if battle ended after second player's action
+      if (this.checkBattleEnd()) return;
+    }
+
+    this.log(`Hero 1: HP ${this.state.hero1.currentHealth}/${this.state.hero1.health}, Mana ${this.state.hero1.currentMana}/${this.state.hero1.mana}, Stamina ${this.state.hero1.currentStamina}/${this.state.hero1.stamina}, Shield ${this.state.hero1.shield}`);
+    this.log(`Hero 2: HP ${this.state.hero2.currentHealth}/${this.state.hero2.health}, Mana ${this.state.hero2.currentMana}/${this.state.hero2.mana}, Stamina ${this.state.hero2.currentStamina}/${this.state.hero2.stamina}, Shield ${this.state.hero2.shield}`);
+  }
+
+  private checkBattleEnd(): boolean {
     // Check for winner
     if (this.state.hero1.currentHealth <= 0 && this.state.hero2.currentHealth <= 0) {
       this.state.winner = null;
       this.log('Battle ended in a draw!');
+      return true;
     } else if (this.state.hero1.currentHealth <= 0) {
       this.state.winner = 2;
       this.log('Hero 2 wins!');
+      return true;
     } else if (this.state.hero2.currentHealth <= 0) {
       this.state.winner = 1;
       this.log('Hero 1 wins!');
+      return true;
+    }
+    return false;
+  }
+
+  private playCardByIndex(heroNum: 1 | 2, cardIndex: number) {
+    const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
+    if (cardIndex >= deck.length) return;
+
+    const cardId = deck[cardIndex];
+    const card = this.getCard(cardId);
+    if (!card) return;
+
+    const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
+    const defender = heroNum === 1 ? this.state.hero2 : this.state.hero1;
+    const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
+
+    // Check cooldown
+    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
+      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardId)} turns remaining)`);
+      return; // Card is on cooldown
     }
 
-    this.log(`Hero 1: HP ${this.state.hero1.currentHealth}/${this.state.hero1.health}, Mana ${this.state.hero1.currentMana}/${this.state.hero1.mana}, Stamina ${this.state.hero1.currentStamina}/${this.state.hero1.stamina}`);
-    this.log(`Hero 2: HP ${this.state.hero2.currentHealth}/${this.state.hero2.health}, Mana ${this.state.hero2.currentMana}/${this.state.hero2.mana}, Stamina ${this.state.hero2.currentStamina}/${this.state.hero2.stamina}`);
+    if (!this.canPlayCard(card, attacker)) {
+      this.log(`Hero ${heroNum}: Cannot play ${card.name} (not enough resources)`);
+      return; // Cannot afford to play card, skip it
+    }
+
+    this.log(`Hero ${heroNum} plays: ${card.name}`);
+
+    let cardCooldown = 0;
+    let effectDuration = 0;
+    const effectActions: ActionBlock[] = [];
+
+    // Process all characteristics of the card
+    for (const charRef of card.characteristics) {
+      const char = this.getCharacteristic(charRef.characteristicId);
+      if (!char) continue;
+
+      // First pass: check for cooldown and effect duration
+      for (const action of char.actions) {
+        if (action.type === ActionType.COOLDOWN) {
+          cardCooldown = Math.max(cardCooldown, action.value);
+        } else if (action.type === ActionType.EFFECT_DURATION) {
+          effectDuration = action.value;
+        }
+      }
+
+      // Second pass: apply actions
+      for (const action of char.actions) {
+        if (action.type === ActionType.COOLDOWN || action.type === ActionType.EFFECT_DURATION) {
+          continue; // Already processed
+        }
+
+        const scaledAction = { ...action, value: action.value * charRef.value };
+        
+        if (effectDuration > 0) {
+          // This action will be part of a lasting effect
+          effectActions.push(scaledAction);
+        } else {
+          // Apply immediately
+          this.applyAction(scaledAction, attacker, defender, card.name);
+        }
+      }
+    }
+
+    // Set cooldown
+    if (cardCooldown > 0) {
+      cooldowns.set(cardId, cardCooldown);
+      this.log(`${card.name}: Cooldown set to ${cardCooldown} turns`);
+    }
+
+    // Add lasting effect
+    if (effectDuration > 0 && effectActions.length > 0) {
+      attacker.activeEffects.push({
+        cardId: card.id,
+        cardName: card.name,
+        remainingDuration: effectDuration,
+        actions: effectActions,
+      });
+      this.log(`${card.name}: Effect will last for ${effectDuration} turns`);
+    }
   }
 
   private processActiveEffects(heroNum: 1 | 2) {
@@ -341,27 +361,6 @@ export class BattleEngine {
     attacker.activeEffects = remainingEffects;
   }
 
-  private playRandomCard(heroNum: 1 | 2) {
-    const hand = heroNum === 1 ? this.state.hero1Hand : this.state.hero2Hand;
-    const hero = heroNum === 1 ? this.state.hero1 : this.state.hero2;
-
-    if (hand.length === 0) return;
-
-    // Try to play a random card
-    const playableCards = hand.filter(cardId => {
-      const card = this.getCard(cardId);
-      return card && this.canPlayCard(card, hero);
-    });
-
-    if (playableCards.length > 0) {
-      const cardId = playableCards[Math.floor(Math.random() * playableCards.length)];
-      const index = hand.indexOf(cardId);
-      if (index > -1) {
-        hand.splice(index, 1);
-        this.playCard(cardId, heroNum);
-      }
-    }
-  }
 
   public nextTurn() {
     if (this.state.winner !== undefined) return;

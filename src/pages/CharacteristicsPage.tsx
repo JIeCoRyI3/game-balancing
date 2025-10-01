@@ -183,7 +183,7 @@ function CharacteristicsPage() {
                 <div className="char-actions">
                   <strong>Действия:</strong>
                   <div className="actions-list">
-                    {char.actions.map((action, idx) => (
+                    {char.actions.map((action) => (
                       <div key={action.id} className="action-item">
                         {actionTypeLabels[action.type]}: <strong>{action.value}</strong>
                       </div>
