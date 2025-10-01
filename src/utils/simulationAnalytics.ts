@@ -290,3 +290,122 @@ export function getCardWinRateByStats(
     winRate: relevantResults.length > 0 ? (wins / relevantResults.length) * 100 : 0,
   };
 }
+
+export interface StatRangeBalance {
+  healthRange: [number, number];
+  resourceRange: [number, number];
+  avgWinRateDeviation: number;
+  totalBattles: number;
+  cardStats: Array<{
+    cardId: string;
+    cardName: string;
+    winRate: number;
+    deviation: number;
+  }>;
+}
+
+export function findBestBalancedRanges(
+  analytics: SimulationAnalytics,
+  allCards: Card[],
+  healthBuckets: number = 5,
+  resourceBuckets: number = 5,
+  baseHealth: number,
+  baseResource: number
+): StatRangeBalance[] {
+  const maxHealth = baseHealth * 10;
+  const maxResource = baseResource * 10;
+  const healthStep = maxHealth / healthBuckets;
+  const resourceStep = maxResource / resourceBuckets;
+
+  const rangeAnalyses: StatRangeBalance[] = [];
+
+  for (let h = 0; h < healthBuckets; h++) {
+    for (let r = 0; r < resourceBuckets; r++) {
+      const healthMin = h * healthStep;
+      const healthMax = (h + 1) * healthStep;
+      const resourceMin = r * resourceStep;
+      const resourceMax = (r + 1) * resourceStep;
+
+      const cardStats: Array<{ cardId: string; cardName: string; winRate: number; deviation: number }> = [];
+      let totalBattles = 0;
+
+      // Analyze each card in this range
+      allCards.forEach(card => {
+        const stats = getCardWinRateByStats(
+          card.id,
+          analytics,
+          [healthMin, healthMax],
+          [resourceMin, resourceMax]
+        );
+
+        if (stats.total >= 3) { // Minimum sample size
+          totalBattles = Math.max(totalBattles, stats.total);
+          const deviation = Math.abs(stats.winRate - 50);
+          cardStats.push({
+            cardId: card.id,
+            cardName: card.name,
+            winRate: stats.winRate,
+            deviation,
+          });
+        }
+      });
+
+      // Calculate average deviation for this range
+      if (cardStats.length >= 2 && totalBattles >= 5) {
+        const avgDeviation = cardStats.reduce((sum, stat) => sum + stat.deviation, 0) / cardStats.length;
+        
+        rangeAnalyses.push({
+          healthRange: [healthMin, healthMax],
+          resourceRange: [resourceMin, resourceMax],
+          avgWinRateDeviation: avgDeviation,
+          totalBattles,
+          cardStats: cardStats.sort((a, b) => a.deviation - b.deviation),
+        });
+      }
+    }
+  }
+
+  // Sort by best balance (lowest average deviation)
+  return rangeAnalyses.sort((a, b) => a.avgWinRateDeviation - b.avgWinRateDeviation);
+}
+
+export interface CardWinRateAtStats {
+  cardId: string;
+  cardName: string;
+  winRate: number;
+  wins: number;
+  total: number;
+  deviation: number;
+}
+
+export function getCardsWinRateAtSpecificStats(
+  analytics: SimulationAnalytics,
+  allCards: Card[],
+  health: number,
+  manaStamina: number,
+  tolerance: number = 50 // tolerance range for matching
+): CardWinRateAtStats[] {
+  const results: CardWinRateAtStats[] = [];
+
+  allCards.forEach(card => {
+    const stats = getCardWinRateByStats(
+      card.id,
+      analytics,
+      [health - tolerance, health + tolerance],
+      [manaStamina - tolerance, manaStamina + tolerance]
+    );
+
+    if (stats.total > 0) {
+      results.push({
+        cardId: card.id,
+        cardName: card.name,
+        winRate: stats.winRate,
+        wins: stats.wins,
+        total: stats.total,
+        deviation: Math.abs(stats.winRate - 50),
+      });
+    }
+  });
+
+  return results.sort((a, b) => b.winRate - a.winRate);
+}
