@@ -228,25 +228,7 @@ export class BattleEngine {
     this.state.turn++;
     this.log(`\n=== Turn ${this.state.turn} ===`);
 
-    // Regenerate resources at the start of each turn (10% of max)
-    const manaRegen1 = Math.ceil(this.state.hero1.mana * 0.1);
-    const staminaRegen1 = Math.ceil(this.state.hero1.stamina * 0.1);
-    const manaRegen2 = Math.ceil(this.state.hero2.mana * 0.1);
-    const staminaRegen2 = Math.ceil(this.state.hero2.stamina * 0.1);
-    
-    this.state.hero1.currentMana = Math.min(this.state.hero1.mana, this.state.hero1.currentMana + manaRegen1);
-    this.state.hero1.currentStamina = Math.min(this.state.hero1.stamina, this.state.hero1.currentStamina + staminaRegen1);
-    this.state.hero2.currentMana = Math.min(this.state.hero2.mana, this.state.hero2.currentMana + manaRegen2);
-    this.state.hero2.currentStamina = Math.min(this.state.hero2.stamina, this.state.hero2.currentStamina + staminaRegen2);
-    
-    if (manaRegen1 > 0 || staminaRegen1 > 0) {
-      this.log(`Hero 1: Regenerates ${manaRegen1} mana and ${staminaRegen1} stamina`);
-    }
-    if (manaRegen2 > 0 || staminaRegen2 > 0) {
-      this.log(`Hero 2: Regenerates ${manaRegen2} mana and ${staminaRegen2} stamina`);
-    }
-
-    // Process active effects for both heroes
+    // Process active effects for both heroes at the start of the turn
     this.processActiveEffects(1);
     this.processActiveEffects(2);
 
@@ -345,6 +327,8 @@ export class BattleEngine {
     let cardCooldown = 0;
     let effectDuration = 0;
     const effectActions: ActionBlock[] = [];
+    const immediateActions: ActionBlock[] = [];
+    const resourceCosts: ActionBlock[] = [];
 
     // Process all characteristics of the card
     for (const charRef of card.characteristics) {
@@ -360,7 +344,7 @@ export class BattleEngine {
         }
       }
 
-      // Second pass: apply actions
+      // Second pass: categorize actions
       for (const action of char.actions) {
         if (action.type === ActionType.COOLDOWN || action.type === ActionType.EFFECT_DURATION) {
           continue; // Already processed
@@ -368,14 +352,30 @@ export class BattleEngine {
 
         const scaledAction = { ...action, value: action.value * charRef.value };
         
-        if (effectDuration > 0) {
-          // This action will be part of a lasting effect
+        // Resource costs are always immediate and never repeated
+        if (action.type === ActionType.SPEND_MANA_SELF || 
+            action.type === ActionType.SPEND_STAMINA_SELF ||
+            action.type === ActionType.SPEND_MANA_ENEMY ||
+            action.type === ActionType.SPEND_STAMINA_ENEMY) {
+          resourceCosts.push(scaledAction);
+        } else if (effectDuration > 0) {
+          // This action will be part of a lasting effect (applied each turn)
           effectActions.push(scaledAction);
         } else {
-          // Apply immediately
-          this.applyAction(scaledAction, attacker, defender, card.name);
+          // Apply immediately (one-time effect)
+          immediateActions.push(scaledAction);
         }
       }
+    }
+
+    // Apply resource costs first (only once, at card play)
+    for (const action of resourceCosts) {
+      this.applyAction(action, attacker, defender, card.name);
+    }
+
+    // Apply immediate actions (one-time effects)
+    for (const action of immediateActions) {
+      this.applyAction(action, attacker, defender, card.name);
     }
 
     // Set cooldown
@@ -384,7 +384,7 @@ export class BattleEngine {
       this.log(`${card.name}: Cooldown set to ${cardCooldown} turns`);
     }
 
-    // Add lasting effect
+    // Add lasting effect (will be applied each turn)
     if (effectDuration > 0 && effectActions.length > 0) {
       attacker.activeEffects.push({
         cardId: card.id,
@@ -392,7 +392,7 @@ export class BattleEngine {
         remainingDuration: effectDuration,
         actions: effectActions,
       });
-      this.log(`${card.name}: Effect will last for ${effectDuration} turns`);
+      this.log(`${card.name}: Effect applied for ${effectDuration} turns`);
     }
   }
 
@@ -404,16 +404,21 @@ export class BattleEngine {
 
     for (const effect of attacker.activeEffects) {
       if (effect.remainingDuration > 0) {
-        this.log(`${effect.cardName}: Effect active (${effect.remainingDuration} turns remaining)`);
+        this.log(`Hero ${heroNum}: ${effect.cardName} effect active (${effect.remainingDuration} turn(s) remaining)`);
         
+        // Apply the effect actions each turn
         for (const action of effect.actions) {
           this.applyAction(action, attacker, defender, effect.cardName);
         }
 
+        // Decrease duration after applying
         effect.remainingDuration--;
         
+        // Keep effect if still has duration
         if (effect.remainingDuration > 0) {
           remainingEffects.push(effect);
+        } else {
+          this.log(`Hero ${heroNum}: ${effect.cardName} effect ended`);
         }
       }
     }

@@ -278,6 +278,20 @@ function BattleSimulationPage() {
                   <div className="shield-indicator">🛡️ Shield: {currentState.hero1.shield}</div>
                 )}
               </div>
+              
+              {currentState.hero1.activeEffects.length > 0 && (
+                <div className="active-effects">
+                  <h4>🔮 Активные эффекты</h4>
+                  <div className="effects-list">
+                    {currentState.hero1.activeEffects.map((effect, idx) => (
+                      <div key={idx} className="effect-item">
+                        <span className="effect-name">{effect.cardName}</span>
+                        <span className="effect-duration">⏱️ {effect.remainingDuration}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="hero-status">
@@ -323,6 +337,20 @@ function BattleSimulationPage() {
                   <div className="shield-indicator">🛡️ Shield: {currentState.hero2.shield}</div>
                 )}
               </div>
+              
+              {currentState.hero2.activeEffects.length > 0 && (
+                <div className="active-effects">
+                  <h4>🔮 Активные эффекты</h4>
+                  <div className="effects-list">
+                    {currentState.hero2.activeEffects.map((effect, idx) => (
+                      <div key={idx} className="effect-item">
+                        <span className="effect-name">{effect.cardName}</span>
+                        <span className="effect-duration">⏱️ {effect.remainingDuration}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
