@@ -64,8 +64,8 @@ export class BattleEngine {
     this.log(`Hero 2 starts with ${hero2DeckCards.length} cards`);
   }
 
-  private log(message: string, details?: any) {
-    this.state.log.push({ turn: this.state.turn, message, details });
+  private log(message: string, details?: any, cardIcon?: string, cardIconColor?: string) {
+    this.state.log.push({ turn: this.state.turn, message, details, cardIcon, cardIconColor });
   }
 
   private getCard(cardId: string): Card | undefined {
@@ -81,7 +81,9 @@ export class BattleEngine {
     action: ActionBlock,
     attacker: HeroState,
     defender: HeroState,
-    cardName: string
+    cardName: string,
+    cardIcon?: string,
+    cardIconColor?: string
   ) {
     const value = action.value;
 
@@ -90,74 +92,74 @@ export class BattleEngine {
         const damageToDefender = Math.max(0, value - defender.shield);
         defender.shield = Math.max(0, defender.shield - value);
         defender.currentHealth -= damageToDefender;
-        this.log(`${cardName}: Deals ${value} damage to enemy (${damageToDefender} after shield)`);
+        this.log(`${cardName}: Deals ${value} damage to enemy (${damageToDefender} after shield)`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.HEAL_ENEMY:
         defender.currentHealth = Math.min(defender.health, defender.currentHealth + value);
-        this.log(`${cardName}: Heals enemy for ${value}`);
+        this.log(`${cardName}: Heals enemy for ${value}`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.DAMAGE_SELF:
         const damageToSelf = Math.max(0, value - attacker.shield);
         attacker.shield = Math.max(0, attacker.shield - value);
         attacker.currentHealth -= damageToSelf;
-        this.log(`${cardName}: Deals ${value} damage to self (${damageToSelf} after shield)`);
+        this.log(`${cardName}: Deals ${value} damage to self (${damageToSelf} after shield)`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.HEAL_SELF:
         attacker.currentHealth = Math.min(attacker.health, attacker.currentHealth + value);
-        this.log(`${cardName}: Heals self for ${value}`);
+        this.log(`${cardName}: Heals self for ${value}`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.SPEND_MANA_SELF:
         attacker.currentMana = Math.max(0, attacker.currentMana - value);
-        this.log(`${cardName}: Spends ${value} mana`);
+        this.log(`${cardName}: Spends ${value} mana`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.SPEND_MANA_ENEMY:
         defender.currentMana = Math.max(0, defender.currentMana - value);
-        this.log(`${cardName}: Enemy spends ${value} mana`);
+        this.log(`${cardName}: Enemy spends ${value} mana`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.RESTORE_MANA_ENEMY:
         defender.currentMana = Math.min(defender.mana, defender.currentMana + value);
-        this.log(`${cardName}: Restores ${value} mana to enemy`);
+        this.log(`${cardName}: Restores ${value} mana to enemy`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.RESTORE_MANA_SELF:
         attacker.currentMana = Math.min(attacker.mana, attacker.currentMana + value);
-        this.log(`${cardName}: Restores ${value} mana to self`);
+        this.log(`${cardName}: Restores ${value} mana to self`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.SPEND_STAMINA_SELF:
         attacker.currentStamina = Math.max(0, attacker.currentStamina - value);
-        this.log(`${cardName}: Spends ${value} stamina`);
+        this.log(`${cardName}: Spends ${value} stamina`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.SPEND_STAMINA_ENEMY:
         defender.currentStamina = Math.max(0, defender.currentStamina - value);
-        this.log(`${cardName}: Enemy spends ${value} stamina`);
+        this.log(`${cardName}: Enemy spends ${value} stamina`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.RESTORE_STAMINA_SELF:
         attacker.currentStamina = Math.min(attacker.stamina, attacker.currentStamina + value);
-        this.log(`${cardName}: Restores ${value} stamina to self`);
+        this.log(`${cardName}: Restores ${value} stamina to self`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.RESTORE_STAMINA_ENEMY:
         defender.currentStamina = Math.min(defender.stamina, defender.currentStamina + value);
-        this.log(`${cardName}: Restores ${value} stamina to enemy`);
+        this.log(`${cardName}: Restores ${value} stamina to enemy`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.SHIELD_SELF:
         attacker.shield += value;
-        this.log(`${cardName}: Gains ${value} shield`);
+        this.log(`${cardName}: Gains ${value} shield`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.SHIELD_ENEMY:
         defender.shield += value;
-        this.log(`${cardName}: Enemy gains ${value} shield`);
+        this.log(`${cardName}: Enemy gains ${value} shield`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.DRAW_CARD:
@@ -192,35 +194,35 @@ export class BattleEngine {
     return hero.currentMana >= requiredMana && hero.currentStamina >= requiredStamina;
   }
 
-  private playBestAvailableCard(heroNum: 1 | 2): boolean {
+  private tryPlayCard(heroNum: 1 | 2, cardIndex: number): boolean {
     const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
+    
+    if (cardIndex >= deck.length) {
+      return false; // No card at this index
+    }
+
+    const cardId = deck[cardIndex];
+    const card = this.getCard(cardId);
+    if (!card) return false;
+
     const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
     const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
 
-    // Try to find a playable card
-    for (let cardIndex = 0; cardIndex < deck.length; cardIndex++) {
-      const cardId = deck[cardIndex];
-      const card = this.getCard(cardId);
-      if (!card) continue;
-
-      // Check cooldown
-      if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
-        continue; // Card is on cooldown, try next card
-      }
-
-      // Check if hero can afford to play this card
-      if (!this.canPlayCard(card, attacker)) {
-        continue; // Cannot afford, try next card
-      }
-
-      // Found a playable card, play it
-      this.playCardByIndex(heroNum, cardIndex);
-      return true; // Card was played
+    // Check cooldown
+    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
+      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardId)} turns remaining)`, undefined, card.icon, card.iconColor);
+      return false;
     }
 
-    // No playable cards found
-    this.log(`Hero ${heroNum}: No playable cards this turn`);
-    return false; // No card was played
+    // Check if hero can afford to play this card
+    if (!this.canPlayCard(card, attacker)) {
+      this.log(`Hero ${heroNum}: Cannot play ${card.name} (not enough resources)`, undefined, card.icon, card.iconColor);
+      return false;
+    }
+
+    // Play the card
+    this.playCardByIndex(heroNum, cardIndex);
+    return true;
   }
 
 
@@ -231,6 +233,9 @@ export class BattleEngine {
     // Process active effects for both heroes at the start of the turn
     this.processActiveEffects(1);
     this.processActiveEffects(2);
+    
+    // Check if battle ended after effects
+    if (this.checkBattleEnd()) return;
 
     // Decay cooldowns
     this.state.cooldowns1.forEach((value, key) => {
@@ -246,20 +251,38 @@ export class BattleEngine {
 
     this.log(`Hero ${firstPlayer} goes first this turn`);
 
-    // Each hero tries to play one available card per turn
-    // They cycle through their deck trying to find a playable card
-    const hero1Played = this.playBestAvailableCard(firstPlayer as 1 | 2);
-    
-    // Check if battle ended after first player's action
-    if (this.checkBattleEnd()) return;
-    
-    const hero2Played = this.playBestAvailableCard(secondPlayer as 1 | 2);
-    
-    // Check if battle ended after second player's action
-    if (this.checkBattleEnd()) return;
+    // Get deck sizes
+    const deck1Size = this.state.hero1Deck.length;
+    const deck2Size = this.state.hero2Deck.length;
+    const maxCards = Math.max(deck1Size, deck2Size);
+
+    let anyCardPlayed = false;
+
+    // Players alternate playing cards by index
+    for (let cardIndex = 0; cardIndex < maxCards; cardIndex++) {
+      // First player tries to play card at this index
+      if (cardIndex < (firstPlayer === 1 ? deck1Size : deck2Size)) {
+        const played = this.tryPlayCard(firstPlayer as 1 | 2, cardIndex);
+        if (played) {
+          anyCardPlayed = true;
+          // Check if battle ended
+          if (this.checkBattleEnd()) return;
+        }
+      }
+
+      // Second player tries to play card at this index
+      if (cardIndex < (secondPlayer === 1 ? deck1Size : deck2Size)) {
+        const played = this.tryPlayCard(secondPlayer as 1 | 2, cardIndex);
+        if (played) {
+          anyCardPlayed = true;
+          // Check if battle ended
+          if (this.checkBattleEnd()) return;
+        }
+      }
+    }
 
     // Track consecutive turns without any cards played (to prevent infinite loops)
-    if (!hero1Played && !hero2Played) {
+    if (!anyCardPlayed) {
       this.consecutiveTurnsWithoutCards++;
       if (this.consecutiveTurnsWithoutCards >= 5) {
         this.log('Battle ended: No playable cards for 5 consecutive turns');
@@ -282,7 +305,7 @@ export class BattleEngine {
   }
 
   private checkBattleEnd(): boolean {
-    // Check for winner
+    // Check for winner based on health
     if (this.state.hero1.currentHealth <= 0 && this.state.hero2.currentHealth <= 0) {
       this.state.winner = null;
       this.log('Battle ended in a draw!');
@@ -311,18 +334,7 @@ export class BattleEngine {
     const defender = heroNum === 1 ? this.state.hero2 : this.state.hero1;
     const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
 
-    // Check cooldown
-    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
-      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardId)} turns remaining)`);
-      return; // Card is on cooldown
-    }
-
-    if (!this.canPlayCard(card, attacker)) {
-      this.log(`Hero ${heroNum}: Cannot play ${card.name} (not enough resources)`);
-      return; // Cannot afford to play card, skip it
-    }
-
-    this.log(`Hero ${heroNum} plays: ${card.name}`);
+    this.log(`Hero ${heroNum} plays: ${card.name}`, undefined, card.icon, card.iconColor);
 
     let cardCooldown = 0;
     let effectDuration = 0;
@@ -370,18 +382,18 @@ export class BattleEngine {
 
     // Apply resource costs first (only once, at card play)
     for (const action of resourceCosts) {
-      this.applyAction(action, attacker, defender, card.name);
+      this.applyAction(action, attacker, defender, card.name, card.icon, card.iconColor);
     }
 
     // Apply immediate actions (one-time effects)
     for (const action of immediateActions) {
-      this.applyAction(action, attacker, defender, card.name);
+      this.applyAction(action, attacker, defender, card.name, card.icon, card.iconColor);
     }
 
     // Set cooldown
     if (cardCooldown > 0) {
       cooldowns.set(cardId, cardCooldown);
-      this.log(`${card.name}: Cooldown set to ${cardCooldown} turns`);
+      this.log(`${card.name}: Cooldown set to ${cardCooldown} turns`, undefined, card.icon, card.iconColor);
     }
 
     // Add lasting effect (will be applied each turn)
@@ -391,8 +403,10 @@ export class BattleEngine {
         cardName: card.name,
         remainingDuration: effectDuration,
         actions: effectActions,
+        cardIcon: card.icon,
+        cardIconColor: card.iconColor,
       });
-      this.log(`${card.name}: Effect applied for ${effectDuration} turns`);
+      this.log(`${card.name}: Effect applied for ${effectDuration} turns`, undefined, card.icon, card.iconColor);
     }
   }
 
@@ -404,11 +418,11 @@ export class BattleEngine {
 
     for (const effect of attacker.activeEffects) {
       if (effect.remainingDuration > 0) {
-        this.log(`Hero ${heroNum}: ${effect.cardName} effect active (${effect.remainingDuration} turn(s) remaining)`);
+        this.log(`Hero ${heroNum}: ${effect.cardName} effect active (${effect.remainingDuration} turn(s) remaining)`, undefined, effect.cardIcon, effect.cardIconColor);
         
         // Apply the effect actions each turn
         for (const action of effect.actions) {
-          this.applyAction(action, attacker, defender, effect.cardName);
+          this.applyAction(action, attacker, defender, effect.cardName, effect.cardIcon, effect.cardIconColor);
         }
 
         // Decrease duration after applying
@@ -418,7 +432,7 @@ export class BattleEngine {
         if (effect.remainingDuration > 0) {
           remainingEffects.push(effect);
         } else {
-          this.log(`Hero ${heroNum}: ${effect.cardName} effect ended`);
+          this.log(`Hero ${heroNum}: ${effect.cardName} effect ended`, undefined, effect.cardIcon, effect.cardIconColor);
         }
       }
     }
