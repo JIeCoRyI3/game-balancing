@@ -7,6 +7,7 @@ import {
   ActionType,
   HeroSettings,
   ActiveEffect,
+  CardInstance,
 } from '../types';
 
 export class BattleEngine {
@@ -30,8 +31,10 @@ export class BattleEngine {
       currentHealth: hero1Settings.health,
       currentMana: hero1Settings.mana,
       currentStamina: hero1Settings.stamina,
-      shield: 0,
       activeEffects: [],
+      globalMissChance: 0,
+      globalCritChance: 0,
+      globalCritSize: 0,
     };
 
     const hero2: HeroState = {
@@ -39,16 +42,29 @@ export class BattleEngine {
       currentHealth: hero2Settings.health,
       currentMana: hero2Settings.mana,
       currentStamina: hero2Settings.stamina,
-      shield: 0,
       activeEffects: [],
+      globalMissChance: 0,
+      globalCritChance: 0,
+      globalCritSize: 0,
     };
+
+    // Create card instances with unique IDs
+    const hero1DeckInstances: CardInstance[] = hero1DeckCards.map((card, index) => ({
+      cardId: card.id,
+      instanceId: `h1_${card.id}_${index}_${Date.now()}_${Math.random()}`,
+    }));
+
+    const hero2DeckInstances: CardInstance[] = hero2DeckCards.map((card, index) => ({
+      cardId: card.id,
+      instanceId: `h2_${card.id}_${index}_${Date.now()}_${Math.random()}`,
+    }));
 
     this.state = {
       turn: 0,
       hero1,
       hero2,
-      hero1Deck: hero1DeckCards.map(c => c.id),
-      hero2Deck: hero2DeckCards.map(c => c.id),
+      hero1Deck: hero1DeckInstances,
+      hero2Deck: hero2DeckInstances,
       hero1Hand: [],
       hero2Hand: [],
       hero1Played: [],
@@ -83,16 +99,38 @@ export class BattleEngine {
     defender: HeroState,
     cardName: string,
     cardIcon?: string,
-    cardIconColor?: string
+    cardIconColor?: string,
+    cardMissChance: number = 0,
+    cardCritChance: number = 0,
+    cardCritSize: number = 0
   ) {
     const value = action.value;
 
     switch (action.type) {
       case ActionType.DAMAGE_ENEMY:
-        const damageToDefender = Math.max(0, value - defender.shield);
-        defender.shield = Math.max(0, defender.shield - value);
-        defender.currentHealth -= damageToDefender;
-        this.log(`${cardName}: Deals ${value} damage to enemy (${damageToDefender} after shield)`, undefined, cardIcon, cardIconColor);
+        // Calculate total miss and crit chances
+        const totalMissChance = attacker.globalMissChance + cardMissChance;
+        const totalCritChance = attacker.globalCritChance + cardCritChance;
+        const totalCritSize = attacker.globalCritSize + cardCritSize;
+
+        // Check for miss
+        const missRoll = Math.random() * 100;
+        if (missRoll < totalMissChance) {
+          this.log(`${cardName}: MISSED! (${totalMissChance.toFixed(1)}% chance)`, undefined, cardIcon, cardIconColor);
+          break;
+        }
+
+        // Check for crit
+        let finalDamage = value;
+        const critRoll = Math.random() * 100;
+        if (critRoll < totalCritChance) {
+          const critMultiplier = 1 + (totalCritSize / 100);
+          finalDamage = Math.floor(value * critMultiplier);
+          this.log(`${cardName}: CRITICAL HIT! ${value} -> ${finalDamage} damage (${totalCritChance.toFixed(1)}% chance, ${totalCritSize.toFixed(1)}% bonus)`, undefined, cardIcon, cardIconColor);
+        }
+
+        defender.currentHealth -= finalDamage;
+        this.log(`${cardName}: Deals ${finalDamage} damage to enemy`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.HEAL_ENEMY:
@@ -101,10 +139,8 @@ export class BattleEngine {
         break;
 
       case ActionType.DAMAGE_SELF:
-        const damageToSelf = Math.max(0, value - attacker.shield);
-        attacker.shield = Math.max(0, attacker.shield - value);
-        attacker.currentHealth -= damageToSelf;
-        this.log(`${cardName}: Deals ${value} damage to self (${damageToSelf} after shield)`, undefined, cardIcon, cardIconColor);
+        attacker.currentHealth -= value;
+        this.log(`${cardName}: Deals ${value} damage to self`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.HEAL_SELF:
@@ -152,22 +188,45 @@ export class BattleEngine {
         this.log(`${cardName}: Restores ${value} stamina to enemy`, undefined, cardIcon, cardIconColor);
         break;
 
-      case ActionType.SHIELD_SELF:
-        attacker.shield += value;
-        this.log(`${cardName}: Gains ${value} shield`, undefined, cardIcon, cardIconColor);
+      case ActionType.GLOBAL_MISS_CHANCE_SELF:
+        attacker.globalMissChance += value;
+        this.log(`${cardName}: Self global miss chance ${value >= 0 ? '+' : ''}${value}% (now ${attacker.globalMissChance.toFixed(1)}%)`, undefined, cardIcon, cardIconColor);
         break;
 
-      case ActionType.SHIELD_ENEMY:
-        defender.shield += value;
-        this.log(`${cardName}: Enemy gains ${value} shield`, undefined, cardIcon, cardIconColor);
+      case ActionType.GLOBAL_MISS_CHANCE_ENEMY:
+        defender.globalMissChance += value;
+        this.log(`${cardName}: Enemy global miss chance ${value >= 0 ? '+' : ''}${value}% (now ${defender.globalMissChance.toFixed(1)}%)`, undefined, cardIcon, cardIconColor);
         break;
 
-      case ActionType.DRAW_CARD:
-        // Draw cards is handled separately
+      case ActionType.GLOBAL_CRIT_CHANCE_SELF:
+        attacker.globalCritChance += value;
+        this.log(`${cardName}: Self global crit chance ${value >= 0 ? '+' : ''}${value}% (now ${attacker.globalCritChance.toFixed(1)}%)`, undefined, cardIcon, cardIconColor);
+        break;
+
+      case ActionType.GLOBAL_CRIT_CHANCE_ENEMY:
+        defender.globalCritChance += value;
+        this.log(`${cardName}: Enemy global crit chance ${value >= 0 ? '+' : ''}${value}% (now ${defender.globalCritChance.toFixed(1)}%)`, undefined, cardIcon, cardIconColor);
+        break;
+
+      case ActionType.GLOBAL_CRIT_SIZE_SELF:
+        attacker.globalCritSize += value;
+        this.log(`${cardName}: Self global crit size ${value >= 0 ? '+' : ''}${value}% (now ${attacker.globalCritSize.toFixed(1)}%)`, undefined, cardIcon, cardIconColor);
+        break;
+
+      case ActionType.GLOBAL_CRIT_SIZE_ENEMY:
+        defender.globalCritSize += value;
+        this.log(`${cardName}: Enemy global crit size ${value >= 0 ? '+' : ''}${value}% (now ${defender.globalCritSize.toFixed(1)}%)`, undefined, cardIcon, cardIconColor);
         break;
 
       case ActionType.DISCARD_CARD:
         // Discard is handled separately
+        break;
+
+      // Card-specific modifiers are processed when playing the card, not here
+      case ActionType.CARD_CRIT_CHANCE:
+      case ActionType.CARD_CRIT_SIZE:
+      case ActionType.CARD_MISS_CHANCE:
+        // These are handled in playCardByIndex
         break;
     }
   }
@@ -201,16 +260,16 @@ export class BattleEngine {
       return false; // No card at this index
     }
 
-    const cardId = deck[cardIndex];
-    const card = this.getCard(cardId);
+    const cardInstance = deck[cardIndex];
+    const card = this.getCard(cardInstance.cardId);
     if (!card) return false;
 
     const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
     const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
 
-    // Check cooldown
-    if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
-      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardId)} turns remaining)`, undefined, card.icon, card.iconColor);
+    // Check cooldown using instance ID
+    if (cooldowns.has(cardInstance.instanceId) && cooldowns.get(cardInstance.instanceId)! > 0) {
+      this.log(`Hero ${heroNum}: ${card.name} is on cooldown (${cooldowns.get(cardInstance.instanceId)} turns remaining)`, undefined, card.icon, card.iconColor);
       return false;
     }
 
@@ -300,8 +359,8 @@ export class BattleEngine {
       this.consecutiveTurnsWithoutCards = 0;
     }
 
-    this.log(`Hero 1: HP ${this.state.hero1.currentHealth}/${this.state.hero1.health}, Mana ${this.state.hero1.currentMana}/${this.state.hero1.mana}, Stamina ${this.state.hero1.currentStamina}/${this.state.hero1.stamina}, Shield ${this.state.hero1.shield}`);
-    this.log(`Hero 2: HP ${this.state.hero2.currentHealth}/${this.state.hero2.health}, Mana ${this.state.hero2.currentMana}/${this.state.hero2.mana}, Stamina ${this.state.hero2.currentStamina}/${this.state.hero2.stamina}, Shield ${this.state.hero2.shield}`);
+    this.log(`Hero 1: HP ${this.state.hero1.currentHealth}/${this.state.hero1.health}, Mana ${this.state.hero1.currentMana}/${this.state.hero1.mana}, Stamina ${this.state.hero1.currentStamina}/${this.state.hero1.stamina}`);
+    this.log(`Hero 2: HP ${this.state.hero2.currentHealth}/${this.state.hero2.health}, Mana ${this.state.hero2.currentMana}/${this.state.hero2.mana}, Stamina ${this.state.hero2.currentStamina}/${this.state.hero2.stamina}`);
   }
 
   private checkBattleEnd(): boolean {
@@ -326,8 +385,8 @@ export class BattleEngine {
     const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
     if (cardIndex >= deck.length) return;
 
-    const cardId = deck[cardIndex];
-    const card = this.getCard(cardId);
+    const cardInstance = deck[cardIndex];
+    const card = this.getCard(cardInstance.cardId);
     if (!card) return;
 
     const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
@@ -338,6 +397,9 @@ export class BattleEngine {
 
     let cardCooldown = 0;
     let effectDuration = 0;
+    let cardMissChance = 0;
+    let cardCritChance = 0;
+    let cardCritSize = 0;
     const effectActions: ActionBlock[] = [];
     const immediateActions: ActionBlock[] = [];
     const resourceCosts: ActionBlock[] = [];
@@ -347,18 +409,28 @@ export class BattleEngine {
       const char = this.getCharacteristic(charRef.characteristicId);
       if (!char) continue;
 
-      // First pass: check for cooldown and effect duration
+      // First pass: check for cooldown, effect duration, and card-specific modifiers
       for (const action of char.actions) {
         if (action.type === ActionType.COOLDOWN) {
           cardCooldown = Math.max(cardCooldown, action.value);
         } else if (action.type === ActionType.EFFECT_DURATION) {
           effectDuration = action.value;
+        } else if (action.type === ActionType.CARD_MISS_CHANCE) {
+          cardMissChance += action.value * charRef.value;
+        } else if (action.type === ActionType.CARD_CRIT_CHANCE) {
+          cardCritChance += action.value * charRef.value;
+        } else if (action.type === ActionType.CARD_CRIT_SIZE) {
+          cardCritSize += action.value * charRef.value;
         }
       }
 
       // Second pass: categorize actions
       for (const action of char.actions) {
-        if (action.type === ActionType.COOLDOWN || action.type === ActionType.EFFECT_DURATION) {
+        if (action.type === ActionType.COOLDOWN || 
+            action.type === ActionType.EFFECT_DURATION ||
+            action.type === ActionType.CARD_MISS_CHANCE ||
+            action.type === ActionType.CARD_CRIT_CHANCE ||
+            action.type === ActionType.CARD_CRIT_SIZE) {
           continue; // Already processed
         }
 
@@ -382,17 +454,17 @@ export class BattleEngine {
 
     // Apply resource costs first (only once, at card play)
     for (const action of resourceCosts) {
-      this.applyAction(action, attacker, defender, card.name, card.icon, card.iconColor);
+      this.applyAction(action, attacker, defender, card.name, card.icon, card.iconColor, cardMissChance, cardCritChance, cardCritSize);
     }
 
-    // Apply immediate actions (one-time effects)
+    // Apply immediate actions (one-time effects) with card-specific modifiers
     for (const action of immediateActions) {
-      this.applyAction(action, attacker, defender, card.name, card.icon, card.iconColor);
+      this.applyAction(action, attacker, defender, card.name, card.icon, card.iconColor, cardMissChance, cardCritChance, cardCritSize);
     }
 
-    // Set cooldown
+    // Set cooldown using instance ID
     if (cardCooldown > 0) {
-      cooldowns.set(cardId, cardCooldown);
+      cooldowns.set(cardInstance.instanceId, cardCooldown);
       this.log(`${card.name}: Cooldown set to ${cardCooldown} turns`, undefined, card.icon, card.iconColor);
     }
 
