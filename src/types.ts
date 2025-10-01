@@ -14,10 +14,18 @@ export enum ActionType {
   RESTORE_STAMINA_ENEMY = 'restore_stamina_enemy',
   EFFECT_DURATION = 'effect_duration', // 0 = one-time effect
   COOLDOWN = 'cooldown', // in turns
-  DRAW_CARD = 'draw_card',
   DISCARD_CARD = 'discard_card',
-  SHIELD_SELF = 'shield_self',
-  SHIELD_ENEMY = 'shield_enemy',
+  // Global hero stats modifiers
+  GLOBAL_MISS_CHANCE_SELF = 'global_miss_chance_self', // % chance to miss (0-100)
+  GLOBAL_MISS_CHANCE_ENEMY = 'global_miss_chance_enemy',
+  GLOBAL_CRIT_CHANCE_SELF = 'global_crit_chance_self', // % chance to crit (0-100)
+  GLOBAL_CRIT_CHANCE_ENEMY = 'global_crit_chance_enemy',
+  GLOBAL_CRIT_SIZE_SELF = 'global_crit_size_self', // % bonus damage on crit (0-100+)
+  GLOBAL_CRIT_SIZE_ENEMY = 'global_crit_size_enemy',
+  // Card-specific modifiers (only apply to this card's damage)
+  CARD_CRIT_CHANCE = 'card_crit_chance', // % chance for this card to crit
+  CARD_CRIT_SIZE = 'card_crit_size', // % bonus damage for this card's crit
+  CARD_MISS_CHANCE = 'card_miss_chance', // % chance for this card to miss
 }
 
 export interface ActionBlock {
@@ -66,8 +74,11 @@ export interface HeroState extends HeroSettings {
   currentHealth: number;
   currentMana: number;
   currentStamina: number;
-  shield: number;
   activeEffects: ActiveEffect[];
+  // Global crit and miss stats
+  globalMissChance: number; // % (0-100)
+  globalCritChance: number; // % (0-100)
+  globalCritSize: number; // % (0-100+)
 }
 
 export interface ActiveEffect {
@@ -79,17 +90,22 @@ export interface ActiveEffect {
   cardIconColor?: string;
 }
 
+export interface CardInstance {
+  cardId: string; // Reference to the original card
+  instanceId: string; // Unique ID for this specific instance
+}
+
 export interface BattleState {
   turn: number;
   hero1: HeroState;
   hero2: HeroState;
-  hero1Deck: string[]; // Card IDs
-  hero2Deck: string[]; // Card IDs
-  hero1Hand: string[];
-  hero2Hand: string[];
-  hero1Played: string[]; // Cards played this turn
-  hero2Played: string[]; // Cards played this turn
-  cooldowns1: Map<string, number>; // Card ID -> turns remaining
+  hero1Deck: CardInstance[]; // Card instances with unique IDs
+  hero2Deck: CardInstance[]; // Card instances with unique IDs
+  hero1Hand: CardInstance[];
+  hero2Hand: CardInstance[];
+  hero1Played: CardInstance[]; // Cards played this turn
+  hero2Played: CardInstance[]; // Cards played this turn
+  cooldowns1: Map<string, number>; // Card instanceId -> turns remaining
   cooldowns2: Map<string, number>;
   log: BattleLogEntry[];
   winner?: 1 | 2 | null;

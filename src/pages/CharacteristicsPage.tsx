@@ -18,10 +18,16 @@ const actionTypeLabels: Record<ActionType, string> = {
   [ActionType.RESTORE_STAMINA_ENEMY]: 'Восстановление выносливости (врага)',
   [ActionType.EFFECT_DURATION]: 'Длительность эффекта (0 = мгновенно)',
   [ActionType.COOLDOWN]: 'Перезарядка (в ходах)',
-  [ActionType.DRAW_CARD]: 'Взять карту',
   [ActionType.DISCARD_CARD]: 'Сбросить карту',
-  [ActionType.SHIELD_SELF]: 'Щит (свой)',
-  [ActionType.SHIELD_ENEMY]: 'Щит (врага)',
+  [ActionType.GLOBAL_MISS_CHANCE_SELF]: 'Общий Шанс промаха свой (%)',
+  [ActionType.GLOBAL_MISS_CHANCE_ENEMY]: 'Общий Шанс промаха противника (%)',
+  [ActionType.GLOBAL_CRIT_CHANCE_SELF]: 'Общий Шанс крита свой (%)',
+  [ActionType.GLOBAL_CRIT_CHANCE_ENEMY]: 'Общий Шанс крита противника (%)',
+  [ActionType.GLOBAL_CRIT_SIZE_SELF]: 'Общий Размер крита свой (%)',
+  [ActionType.GLOBAL_CRIT_SIZE_ENEMY]: 'Общий Размер крита противника (%)',
+  [ActionType.CARD_CRIT_CHANCE]: 'Шанс крита карты (%)',
+  [ActionType.CARD_CRIT_SIZE]: 'Размер крита карты (%)',
+  [ActionType.CARD_MISS_CHANCE]: 'Шанс промаха карты (%)',
 };
 
 function CharacteristicsPage() {

@@ -947,9 +947,6 @@ function BattleSimulationPage() {
                     ></div>
                   </div>
                 </div>
-                {currentState.hero1.shield > 0 && (
-                  <div className="shield-indicator">🛡️ Shield: {currentState.hero1.shield}</div>
-                )}
               </div>
               
               {currentState.hero1.activeEffects.length > 0 && (
@@ -1013,9 +1010,6 @@ function BattleSimulationPage() {
                     ></div>
                   </div>
                 </div>
-                {currentState.hero2.shield > 0 && (
-                  <div className="shield-indicator">🛡️ Shield: {currentState.hero2.shield}</div>
-                )}
               </div>
               
               {currentState.hero2.activeEffects.length > 0 && (
