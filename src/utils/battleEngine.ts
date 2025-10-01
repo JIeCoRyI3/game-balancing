@@ -13,6 +13,7 @@ export class BattleEngine {
   private state: BattleState;
   private cards: Card[];
   private characteristics: Characteristic[];
+  private consecutiveTurnsWithoutCards: number = 0;
 
   constructor(
     hero1Settings: HeroSettings,
@@ -55,7 +56,7 @@ export class BattleEngine {
       cooldowns1: new Map(),
       cooldowns2: new Map(),
       log: [{ turn: 0, message: 'Battle started!' }],
-      winner: null,
+      winner: undefined,
     };
 
     // Heroes start with all cards - no drawing
@@ -191,10 +192,59 @@ export class BattleEngine {
     return hero.currentMana >= requiredMana && hero.currentStamina >= requiredStamina;
   }
 
+  private playBestAvailableCard(heroNum: 1 | 2): boolean {
+    const deck = heroNum === 1 ? this.state.hero1Deck : this.state.hero2Deck;
+    const attacker = heroNum === 1 ? this.state.hero1 : this.state.hero2;
+    const cooldowns = heroNum === 1 ? this.state.cooldowns1 : this.state.cooldowns2;
+
+    // Try to find a playable card
+    for (let cardIndex = 0; cardIndex < deck.length; cardIndex++) {
+      const cardId = deck[cardIndex];
+      const card = this.getCard(cardId);
+      if (!card) continue;
+
+      // Check cooldown
+      if (cooldowns.has(cardId) && cooldowns.get(cardId)! > 0) {
+        continue; // Card is on cooldown, try next card
+      }
+
+      // Check if hero can afford to play this card
+      if (!this.canPlayCard(card, attacker)) {
+        continue; // Cannot afford, try next card
+      }
+
+      // Found a playable card, play it
+      this.playCardByIndex(heroNum, cardIndex);
+      return true; // Card was played
+    }
+
+    // No playable cards found
+    this.log(`Hero ${heroNum}: No playable cards this turn`);
+    return false; // No card was played
+  }
+
 
   private processTurn() {
     this.state.turn++;
     this.log(`\n=== Turn ${this.state.turn} ===`);
+
+    // Regenerate resources at the start of each turn (10% of max)
+    const manaRegen1 = Math.ceil(this.state.hero1.mana * 0.1);
+    const staminaRegen1 = Math.ceil(this.state.hero1.stamina * 0.1);
+    const manaRegen2 = Math.ceil(this.state.hero2.mana * 0.1);
+    const staminaRegen2 = Math.ceil(this.state.hero2.stamina * 0.1);
+    
+    this.state.hero1.currentMana = Math.min(this.state.hero1.mana, this.state.hero1.currentMana + manaRegen1);
+    this.state.hero1.currentStamina = Math.min(this.state.hero1.stamina, this.state.hero1.currentStamina + staminaRegen1);
+    this.state.hero2.currentMana = Math.min(this.state.hero2.mana, this.state.hero2.currentMana + manaRegen2);
+    this.state.hero2.currentStamina = Math.min(this.state.hero2.stamina, this.state.hero2.currentStamina + staminaRegen2);
+    
+    if (manaRegen1 > 0 || staminaRegen1 > 0) {
+      this.log(`Hero 1: Regenerates ${manaRegen1} mana and ${staminaRegen1} stamina`);
+    }
+    if (manaRegen2 > 0 || staminaRegen2 > 0) {
+      this.log(`Hero 2: Regenerates ${manaRegen2} mana and ${staminaRegen2} stamina`);
+    }
 
     // Process active effects for both heroes
     this.processActiveEffects(1);
@@ -214,25 +264,35 @@ export class BattleEngine {
 
     this.log(`Hero ${firstPlayer} goes first this turn`);
 
-    // Heroes play cards sequentially from their decks
-    const maxCards = Math.max(this.state.hero1Deck.length, this.state.hero2Deck.length);
+    // Each hero tries to play one available card per turn
+    // They cycle through their deck trying to find a playable card
+    const hero1Played = this.playBestAvailableCard(firstPlayer as 1 | 2);
     
-    for (let cardIndex = 0; cardIndex < maxCards; cardIndex++) {
-      // First player plays their card
-      if (cardIndex < (firstPlayer === 1 ? this.state.hero1Deck : this.state.hero2Deck).length) {
-        this.playCardByIndex(firstPlayer as 1 | 2, cardIndex);
+    // Check if battle ended after first player's action
+    if (this.checkBattleEnd()) return;
+    
+    const hero2Played = this.playBestAvailableCard(secondPlayer as 1 | 2);
+    
+    // Check if battle ended after second player's action
+    if (this.checkBattleEnd()) return;
+
+    // Track consecutive turns without any cards played (to prevent infinite loops)
+    if (!hero1Played && !hero2Played) {
+      this.consecutiveTurnsWithoutCards++;
+      if (this.consecutiveTurnsWithoutCards >= 5) {
+        this.log('Battle ended: No playable cards for 5 consecutive turns');
+        // Determine winner based on current health
+        if (this.state.hero1.currentHealth > this.state.hero2.currentHealth) {
+          this.state.winner = 1;
+        } else if (this.state.hero2.currentHealth > this.state.hero1.currentHealth) {
+          this.state.winner = 2;
+        } else {
+          this.state.winner = null;
+        }
+        return;
       }
-      
-      // Check if battle ended after first player's action
-      if (this.checkBattleEnd()) return;
-      
-      // Second player plays their card
-      if (cardIndex < (secondPlayer === 1 ? this.state.hero1Deck : this.state.hero2Deck).length) {
-        this.playCardByIndex(secondPlayer as 1 | 2, cardIndex);
-      }
-      
-      // Check if battle ended after second player's action
-      if (this.checkBattleEnd()) return;
+    } else {
+      this.consecutiveTurnsWithoutCards = 0;
     }
 
     this.log(`Hero 1: HP ${this.state.hero1.currentHealth}/${this.state.hero1.health}, Mana ${this.state.hero1.currentMana}/${this.state.hero1.mana}, Stamina ${this.state.hero1.currentStamina}/${this.state.hero1.stamina}, Shield ${this.state.hero1.shield}`);
